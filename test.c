@@ -90,6 +90,8 @@ void run_tests(KCtx *ctx) {
   TEST("cond3", "44 " age_check, 2, is_str(top, "adult"));
   TEST("cond fallback", "123 " age_check, 2, is_str(top, "older adult"));
 
+  TEST("slurp", "\".test/small.txt\" slurp", 1,
+       is_str(top, "Korvatunturin Konkatenatiivinen Kieli\n"));
 }
 int main(int argc, char **argv) {
   kokoki_init(run_tests);

@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #include "tgc/tgc.h"
 #include "kokoki.h"
 
@@ -639,6 +640,32 @@ void native_exec(KCtx *ctx) {
   }
 }
 
+void native_slurp(KCtx *ctx) {
+  char filename[512];
+  KVal name = arr_pop(ctx->stack);
+  KVal err;
+  if (name.type != KT_STRING) {
+    err(name, "Slurp requires a string filename");
+    arr_push(ctx->stack, err);
+    return;
+  } else if (name.data.string.len > 511) {
+    err(name, "Too long filename");
+    arr_push(ctx->stack, err);
+    return;
+  }
+  snprintf(filename, 512, "%.*s", (int)name.data.string.len,
+           name.data.string.data);
+  struct stat b;
+  stat(filename, &b);
+  FILE* f = fopen(filename, "r");
+  char* in = (char*) tgc_alloc(&gc, b.st_size+1);
+  fread(in, b.st_size, 1, f);
+  in[b.st_size] = 0;
+  fclose(f);
+  arr_push(ctx->stack,
+           (KVal){.type = KT_STRING, .data.string = {.len = b.st_size, .data = in}});
+}
+
 #define STRINGIFY2(X) #X
 #define STRINGIFY(X) STRINGIFY2(X)
 
@@ -655,7 +682,7 @@ void kokoki_init(void (*callback)(KCtx*)) {
   native(ctx, "exec", native_exec);
   native(ctx, "cond", native_cond);
   native(ctx, ".", native_print);
-
+  native(ctx, "slurp", native_slurp);
   callback(ctx);
   tgc_stop(&gc);
 }
