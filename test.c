@@ -44,6 +44,7 @@ bool is_error(KVal v, const char *err) {
 
 
 void run_tests(KCtx *ctx) {
+  TEST("comment", "# this is a comment\n 1 2 3 + # and so is this\n+", 1, top.data.number == 6);
   TEST("basics", "[200.0 200.0 + ] exec 0.67 + 10.01 dup + +", 1, top.data.number == 420.69);
 
   TEST("define value", ": pi 3.1415 ; 2 pi *", 1, top.data.number == 6.283);

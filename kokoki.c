@@ -209,12 +209,23 @@ KCtx *kctx_new() {
   return ctx;
 }
 
+#define next(at) *(at) = *(at) + 1;
+
 /* Parsing */
 void skipws(char **at) {
-  char c = **at;
-  while(c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-    *at = *at + 1;
-    c = **at;
+ start: {
+    char c = **at;
+    while(c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+      next(at);
+      c = **at;
+    }
+    if (c == '#') {
+      while (c != '\n') {
+        next(at);
+        c = **at;
+      }
+      goto start;
+    }
   }
 }
 
