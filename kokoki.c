@@ -472,15 +472,19 @@ void kval_dump(KVal v) {
   }
 }
 
+void debug_exec(KCtx *ctx, KVal v) {
+  printf("EXECUTING %d: ", v.type);
+  kval_dump(v);
+  printf(" STACK:");
+  for (size_t i = 0; i < ctx->stack->size; i++) {
+   printf(" ");
+   kval_dump(ctx->stack->items[i]);
+  }
+  printf("\n");
+}
+
 void exec(KCtx *ctx, KVal v) {
-  //printf("EXECUTING %d: ", v.type);
-  //kval_dump(v);
-  //printf(" STACK:");
-  //for (size_t i = 0; i < ctx->stack->size; i++) {
-  //  printf(" ");
-  //  kval_dump(ctx->stack->items[i]);
-  //}
-  //printf("\n");
+  //debug_exec(ctx, v);
   switch (v.type) {
   case KT_NAME: {
     KVal name = hm_get(ctx->names, v);
@@ -582,15 +586,33 @@ void native_print(KCtx *ctx) {
 }
 
 void native_cond(KCtx *ctx) {
-  /*
-    [ [condition block] [then block ]]
-    eg.
-    [ [ x 10 < ] [ "you are a child" .]
-      [ x 42 < ] [ "you are an adult" .]
-      true [ "you are quite old" .] ] cond
-
-*/
-  //  KVal
+  KVal cond = arr_pop(ctx->stack);
+  if (cond.type != KT_ARRAY || cond.data.array->size % 2) {
+    KVal e;
+    err(e, "Cond requires an array with alternating condition/action pairs.");
+    arr_push(ctx->stack, e);
+  } else {
+    for (size_t i = 0; i < cond.data.array->size - 1; i++) {
+      KVal _if = cond.data.array->items[i * 2 + 0];
+      if(_if.type == KT_ARRAY) _if.type = KT_BLOCK;
+      KVal _then = cond.data.array->items[i * 2 + 1];
+      exec(ctx, _if);
+      KVal result = arr_pop(ctx->stack);
+      //printf("IF ");
+      //kval_dump(_if);
+      //printf(" THEN ");
+      //kval_dump(_then);
+      //printf(" ==> ");
+      //kval_dump(result);
+      //printf("\n");
+      if (result.type == KT_TRUE) {
+        // we are done, run action and return
+        if(_then.type == KT_ARRAY) _then.type = KT_BLOCK;
+        exec(ctx, _then);
+        return;
+      }
+    }
+  }
 }
 
 void native_dup(KCtx *ctx) {
@@ -631,7 +653,7 @@ void kokoki_init(void (*callback)(KCtx*)) {
   native(ctx, "swap", native_swap);
   native(ctx, "drop", native_drop);
   native(ctx, "exec", native_exec);
-
+  native(ctx, "cond", native_cond);
   native(ctx, ".", native_print);
 
   callback(ctx);

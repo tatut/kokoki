@@ -22,3 +22,16 @@ Examples.
 # use it
 3 squared    # stack will now contain 9
 ```
+
+Conditional execution is done with the `cond` word which operates on an array of
+alternating condition, action -pairs. Cond tries the conditions in order and executes
+the first action whose condition matches.
+
+```
+# cond with last fallback condition
+[ [ x 10 < ] "you are a child"
+  [ x 42 < ] "you are an adult"
+  true       "you are quite old" ] cond
+
+# => leaves one of the 3 strings on the stack, depending on the value of x
+```
