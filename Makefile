@@ -5,5 +5,5 @@ run: kokoki
 	./kokoki
 
 test: kokoki.c kokoki.h test.c tgc/tgc.c tgc/tgc.h
-	cc -gdwarf -o test test.c kokoki.c tgc/tgc.c
+	cc -o test test.c kokoki.c tgc/tgc.c
 	./test

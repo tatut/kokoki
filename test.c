@@ -7,6 +7,7 @@
 
 static int fails_before;
 static int fails = 0;
+static int success = 0;
 KVal top;
 
 #define TEST(name, src, expected_stack_size, check_code)                       \
@@ -24,22 +25,37 @@ KVal top;
       top = ctx->stack->items[ctx->stack->size - 1];                           \
     if (!(check_code)) {                                                       \
       fprintf(stderr,                                                          \
-              "❌ FAIL: " name " (check)\n    " STRINGIFY(check_code) "\n");   \
+              "\n❌ [line: " STRINGIFY(__LINE__) "] FAIL: " name               \
+                                                 " (check)\n    " STRINGIFY(   \
+                                                     check_code) "\n");        \
       fails++;                                                                 \
     }                                                                          \
     if (fails == fails_before) {                                               \
-      printf("✅ SUCCESS: " name "\n");                                        \
+      /*printf("✅ SUCCESS: " name "\n");*/                                    \
+      printf("✅ ");                                                           \
+      success++;                                                               \
     }                                                                          \
     ctx->stack->size = 0;                                                      \
   }
 
 
+
+
 bool is_error(KVal v, const char *err) {
-  if (v.type != KT_ERROR)
+  if (v.type != KT_ERROR) {
+    printf(" expected error, got: ");
+    kval_dump(v);
+    printf("\n");
     return false;
-  if (strlen(err) != v.data.string.len)
+  }
+  if (strlen(err) != v.data.string.len ||
+      memcmp(err,v.data.string.data, v.data.string.len) != 0) {
+    printf(" error with text\n"
+           " expected: %s\n"
+           "   actual: %.*s\n", err, (int)v.data.string.len, v.data.string.data);
     return false;
-  return memcmp(err,v.data.string.data, v.data.string.len) == 0;
+  }
+  return true;
 }
 
 bool is_str(KVal v, const char *str) {
@@ -59,7 +75,40 @@ bool is_str(KVal v, const char *str) {
           str,
           (int)v.data.string.len, v.data.string.data);
    return false;
+ }
 
+bool is_num_arr(KVal v, size_t len, double *nums) {
+  if (v.type != KT_ARRAY)
+    goto not_array;
+  if (v.data.array->size != len)
+    goto size_mismatch;
+  for (size_t i = 0; i < len; i++) {
+    if (v.data.array->items[i].data.number != nums[i]) {
+      printf("  [%zu] expected %f, got %f\n", i, nums[i],
+             v.data.array->items[i].data.number);
+      return false;
+    }
+  }
+  return true;
+ not_array:
+  printf(" expected array\n");
+  return false;
+size_mismatch:
+  printf(" expected array of length %zu, got length %zu\n", len,
+         v.data.array->size);
+  return false;
+}
+
+bool is_num(KVal v, double num) {
+  if (v.type != KT_NUMBER) {
+    printf(" expected number\n");
+    return false;
+  }
+  if (v.data.number != num) {
+    printf(" expected %f, got %f\n", num, v.data.number);
+    return false;
+  }
+  return true;
 }
 
 #define age_check                                                              \
@@ -92,9 +141,42 @@ void run_tests(KCtx *ctx) {
 
   TEST("slurp", "\".test/small.txt\" slurp", 1,
        is_str(top, "Korvatunturin Konkatenatiivinen Kieli\n"));
+
+  TEST("each", "[1 2 3] [2 *] each", 1,
+       is_num_arr(top, 3, (double[]){2, 4, 6}));
+  TEST("each2", ": inc 1 + ; [41 665] [inc] each", 1,
+       is_num_arr(top, 2, (double[]){42, 666}));
+
+  TEST("fold", "[1 2 3 0] [+] fold", 1, is_num(top, 6));
+  TEST("fold1", "[42] [+] fold", 1, is_num(top, 42));
+  TEST("cat", "\"foo\" \"bar\" cat", 1, is_str(top, "foobar"));
+  TEST("fold cat", "[\"foo\" \"bar\" \"baz\"] [cat] fold", 1,
+       is_str(top, "foobarbaz"));
+
+  TEST("filter even", "[1 2 3 6 8 41] [2 % 0 =] filter", 1,
+       is_num_arr(top, 3, (double[]){2, 6, 8}));
+  TEST("not1", "1 2 < not", 1, top.type == KT_FALSE);
+  TEST("not2", "false not", 1, top.type == KT_TRUE);
+  TEST("not3", "nil not", 1, top.type == KT_TRUE);
+  TEST("not4", "42 not", 1, top.type == KT_FALSE);
+
+  TEST("apush", "[ 1 2 ] 3 apush", 1, is_num_arr(top, 3, (double[]){1, 2, 3}));
+  TEST("alen", "[1 2 3] alen", 2, is_num(top, 3));
+  TEST("aget", "[1 2 3] 1 aget", 2, is_num(top, 2));
+  TEST("aset", "[1 2 3] 1 42 aset", 1,
+       is_num_arr(top, 3, (double[]){1, 42, 3}));
+  TEST("aset end", "[1 2] 2 3 aset", 1, is_num_arr(top, 3, (double[]){1,2,3}));
+  TEST("aget oob", "[1 2] 5 aget", 2,
+       is_error(top, "Index out of bounds 5 (0 - 1 inclusive)"));
+  TEST("adel", "[1 2 3 4] 2 adel", 1, is_num_arr(top, 3, (double[]){1,2,4}));
+
+  TEST("times1", "3 4 times + + +", 1, is_num(top, 12));
+  TEST("times2", "[] [6 apush] 3 times", 1, is_num_arr(top, 3, (double[]){6,6,6}));
 }
+
 int main(int argc, char **argv) {
   kokoki_init(run_tests);
+  printf("\n%d success\n", success);
   if (fails) {
     fprintf(stderr, "%d failures!\n", fails);
     return 1;

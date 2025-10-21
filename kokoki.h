@@ -76,4 +76,6 @@ void kokoki_eval(KCtx *ctx, const char *source);
  */
 void kokoki_native(KCtx * ctx, const char *name, void (*native)(KCtx *));
 
+void kval_dump(KVal v);
+
 #endif

@@ -51,6 +51,8 @@ static tgc_t gc;
 stack
   (str)      (0)    lines    split string into array of lines
   (str str)  (-1)   split    split string by separator into array of tokens
+  (arr str)  (-1)   join     join array of strings with separator
+  (str str)  (-1)   cat      join 2 strings
 
  */
 
@@ -107,9 +109,11 @@ uint32_t kval_hash(KVal v) { // MurmurOAAT_32
     (val).type = KT_ERROR;                                                     \
     size_t _errlen = (size_t)snprintf(NULL, 0, fmt VA_ARGS(__VA_ARGS__));      \
     (val).data.string.len = _errlen;                                           \
-    (val).data.string.data = tgc_alloc(&gc, _errlen - 1);                      \
-    snprintf((val).data.string.data, _errlen, fmt VA_ARGS(__VA_ARGS__));       \
+    (val).data.string.data = tgc_alloc(&gc, _errlen + 1);                      \
+    snprintf((val).data.string.data, _errlen + 1, fmt VA_ARGS(__VA_ARGS__));   \
   }
+
+
 
 
 
@@ -241,7 +245,7 @@ bool is_alphanumeric(char ch) { return is_alpha(ch) || is_digit(ch); }
 
 bool is_name_start_char(char ch) {
   return is_alpha(ch) || ch == '_' || ch == '$' || ch == '+' || ch == '<' ||
-         ch == '>' || ch == '=' || ch == '?' || ch == '.' || ch == '*';
+         ch == '>' || ch == '=' || ch == '?' || ch == '.' || ch == '*' || ch == '%';
 }
 
 bool is_name_char(char ch) {
@@ -329,18 +333,31 @@ void arr_remove_first(KArray *arr) {
 }
 
 const char *ERR_STACK_UNDERFLOW = "Stack underflow!";
-KVal arr_pop(KArray *arr) {
+bool check_underflow(KArray *arr, KVal *val) {
   if(arr->size == 0) {
-    return (KVal){
-      .type = KT_ERROR,
-      .data.string={
-        .len = strlen(ERR_STACK_UNDERFLOW),
-        .data = (char*)ERR_STACK_UNDERFLOW}};
+    *val = (KVal){.type = KT_ERROR,
+                  .data.string = {.len = strlen(ERR_STACK_UNDERFLOW),
+                                  .data = (char *)ERR_STACK_UNDERFLOW}};
+    return false;
   }
-  return arr->items[--arr->size];
+  return true;
 }
 
+KVal arr_pop(KArray *arr) {
+  KVal ret;
+  if (check_underflow(arr, &ret)) {
+    ret = arr->items[--arr->size];
+  }
+  return ret;
+}
 
+KVal arr_peek(KArray *arr) {
+  KVal ret;
+  if (check_underflow(arr, &ret)) {
+    ret = arr->items[arr->size - 1];
+  }
+  return ret;
+}
 
 
 KVal read_array_(char **at, char endch) {
@@ -473,14 +490,18 @@ void kval_dump(KVal v) {
   }
 }
 
-void debug_exec(KCtx *ctx, KVal v) {
-  printf("EXECUTING %d: ", v.type);
-  kval_dump(v);
-  printf(" STACK:");
+void debug_stack(KCtx *ctx) {
   for (size_t i = 0; i < ctx->stack->size; i++) {
    printf(" ");
    kval_dump(ctx->stack->items[i]);
   }
+}
+
+void debug_exec(KCtx *ctx, KVal v) {
+  printf("EXECUTING %d: ", v.type);
+  kval_dump(v);
+  printf(" STACK:");
+  debug_stack(ctx);
   printf("\n");
 }
 
@@ -582,6 +603,16 @@ void kokoki_native(KCtx *ctx, const char *name, void (*callback)(KCtx *)) {
 DO_NUM_OPS
 #undef DO
 
+void native_mod(KCtx *ctx) {
+  KVal b = arr_pop(ctx->stack);
+  KVal a = arr_pop(ctx->stack);
+  arr_push(ctx->stack, (KVal){
+      .type = KT_NUMBER,
+      .data.number = (double)((long)a.data.number %
+                              (long)b.data.number)
+    });
+}
+
 void native_print(KCtx *ctx) {
   kval_dump(arr_pop(ctx->stack));
 }
@@ -666,6 +697,195 @@ void native_slurp(KCtx *ctx) {
            (KVal){.type = KT_STRING, .data.string = {.len = b.st_size, .data = in}});
 }
 
+/* Takes 2 values: an array to process and code (array or word name) to run on each item.
+ * The code is invoked for each element of the 1st array with
+ * the element as the top of the stack. The top of the stack after the block
+ * is run, is put into the array.
+ *
+ * [1 2 3] [1 +] each
+ * => leaves [2 3 4] on the stack
+ */
+
+void native_each(KCtx *ctx) {
+  KVal code = arr_pop(ctx->stack);
+  if(code.type == KT_ARRAY) code.type = KT_BLOCK;
+  KVal arr = arr_pop(ctx->stack);
+  KVal error;
+  if (arr.type != KT_ARRAY) {
+    err(error, "Expected array to go through");
+    arr_push(ctx->stack, error);
+    return;
+  }
+  for (size_t i = 0; i < arr.data.array->size; i++) {
+    KVal item = arr.data.array->items[i];
+    arr_push(ctx->stack, item);
+    exec(ctx, code);
+    arr.data.array->items[i] = arr_pop(ctx->stack);
+  }
+  arr_push(ctx->stack, arr);
+}
+
+void native_fold(KCtx *ctx) {
+  KVal code = arr_pop(ctx->stack);
+  if(code.type == KT_ARRAY) code.type = KT_BLOCK;
+  KVal arr = arr_pop(ctx->stack);
+  KVal error;
+  if (arr.type != KT_ARRAY) {
+    err(error, "Expected array to fold");
+    arr_push(ctx->stack, error);
+    return;
+  }
+  for (size_t i = 0; i < arr.data.array->size; i++) {
+    KVal item = arr.data.array->items[i];
+    arr_push(ctx->stack, item);
+    if(i)
+      exec(ctx, code);
+  }
+}
+
+void native_cat(KCtx *ctx) {
+  KVal b = arr_pop(ctx->stack);
+  KVal a = arr_pop(ctx->stack);
+  KVal error;
+  if (b.type != KT_STRING || a.type != KT_STRING) {
+    err(error, "Expected two strings to join");
+    arr_push(ctx->stack, error);
+  } else {
+    size_t len = a.data.string.len + b.data.string.len;
+    KVal str = (KVal) {
+      .type = KT_STRING, .data.string = {
+        .len = len,
+        .data = tgc_alloc(&gc, len)
+      }
+    };
+    memcpy(str.data.string.data, a.data.string.data, a.data.string.len);
+    memcpy(&str.data.string.data[a.data.string.len], b.data.string.data, b.data.string.len);
+    arr_push(ctx->stack, str);
+  }
+}
+
+void native_filter(KCtx *ctx) {
+ KVal code = arr_pop(ctx->stack);
+ if(code.type == KT_ARRAY) code.type = KT_BLOCK;
+ KVal arr = arr_pop(ctx->stack);
+ KVal error;
+ if (arr.type != KT_ARRAY) {
+   err(error, "Expected array to filter");
+   arr_push(ctx->stack, error);
+   return;
+ }
+ size_t idx=0; // idx to put to
+ for (size_t i = 0; i < arr.data.array->size; i++) {
+   KVal item = arr.data.array->items[i];
+   arr_push(ctx->stack, item);
+   exec(ctx, code);
+   KVal result = arr_pop(ctx->stack);
+   if (result.type != KT_FALSE && result.type != KT_NIL) {
+     arr.data.array->items[idx++] = item;
+   }
+ }
+ // clear all residual items
+ for (size_t i = idx; i < arr.data.array->size; i++) {
+   arr.data.array->items[i] = (KVal){.type = KT_NIL};
+ }
+ arr.data.array->size = idx;
+ arr_push(ctx->stack, arr);
+}
+
+void native_equals(KCtx *ctx) {
+  KVal b = arr_pop(ctx->stack);
+  KVal a = arr_pop(ctx->stack);
+  arr_push(ctx->stack, (KVal){.type = kval_eq(a, b) ? KT_TRUE : KT_FALSE});
+}
+
+void native_not(KCtx *ctx) {
+  KType t = arr_pop(ctx->stack).type;
+  if (t == KT_FALSE || t == KT_NIL) {
+    arr_push(ctx->stack, (KVal){.type = KT_TRUE});
+  } else {
+    arr_push(ctx->stack, (KVal){.type = KT_FALSE});
+  }
+}
+
+void native_apush(KCtx *ctx) {
+  KVal v = arr_pop(ctx->stack);
+  KVal arr = arr_pop(ctx->stack);
+  // assert array
+  arr_push(arr.data.array, v);
+  arr_push(ctx->stack, arr);
+}
+
+void native_times(KCtx *ctx) {
+  /* [code] N times
+   * run code N times
+   */
+  KVal times = arr_pop(ctx->stack);
+  KVal code = arr_pop(ctx->stack);
+  if(code.type == KT_ARRAY) code.type = KT_BLOCK;
+  long N = (long)times.data.number;
+  for (long i = 0; i < N; i++) {
+    exec(ctx, code);
+  }
+}
+
+void native_alen(KCtx *ctx) {
+  KVal arr = arr_peek(ctx->stack);
+  arr_push(ctx->stack, (KVal) {.type = KT_NUMBER, .data.number = arr.data.array->size});
+}
+void native_aget(KCtx *ctx) {
+  KVal idx = arr_pop(ctx->stack);
+  KVal arr = arr_peek(ctx->stack);
+  KVal ret;
+  size_t i = (size_t) idx.data.number;
+  if (i < 0 || i >= arr.data.array->size) {
+    err(ret, "Index out of bounds %zu (0 - %zu inclusive)", i, arr.data.array->size - 1);
+  } else {
+    ret = arr.data.array->items[i];
+  }
+  arr_push(ctx->stack, ret);
+}
+
+void native_aset(KCtx *ctx) {
+  KVal val = arr_pop(ctx->stack);
+  KVal idx = arr_pop(ctx->stack);
+  KVal arr = arr_peek(ctx->stack);
+  size_t i = (size_t)idx.data.number;
+  if (i < 0 || i > arr.data.array->size) {
+    KVal ret;
+    err(ret, "Index out of bounds %zu (0 - %zu inclusive)", i,
+        arr.data.array->size);
+    arr_push(ctx->stack, ret);
+  } else {
+    if (i == arr.data.array->size) {
+      arr_push(arr.data.array, val);
+    } else {
+      arr.data.array->items[i] = val;
+    }
+  }
+}
+
+void native_adel(KCtx *ctx) {
+  KVal idx = arr_pop(ctx->stack);
+  KVal arr = arr_peek(ctx->stack);
+  size_t i = (size_t)idx.data.number;
+  if (i < 0 || i > arr.data.array->size) {
+    KVal ret;
+    err(ret, "Index out of bounds %zu (0 - %zu inclusive)", i,
+        arr.data.array->size - 1);
+    arr_push(ctx->stack, ret);
+  } else {
+    for (size_t idx = i; idx < arr.data.array->size - 1; idx++) {
+      arr.data.array->items[i] = arr.data.array->items[i+1];
+    }
+    arr.data.array->size--;
+  }
+}
+
+/*
+ * while top of the stack is true
+ * @foo 0 !
+ * [ "hello" . ] [ @foo get 10 > ]  while
+ */
 #define STRINGIFY2(X) #X
 #define STRINGIFY(X) STRINGIFY2(X)
 
@@ -676,6 +896,8 @@ void kokoki_init(void (*callback)(KCtx*)) {
 #define DO(name, op, type) native(ctx, STRINGIFY(op), native_##name);
   DO_NUM_OPS
 #undef DO
+  native(ctx, "=", native_equals);
+  native(ctx, "%", native_mod);
   native(ctx, "dup", native_dup);
   native(ctx, "swap", native_swap);
   native(ctx, "drop", native_drop);
@@ -683,6 +905,17 @@ void kokoki_init(void (*callback)(KCtx*)) {
   native(ctx, "cond", native_cond);
   native(ctx, ".", native_print);
   native(ctx, "slurp", native_slurp);
+  native(ctx, "each", native_each);
+  native(ctx, "fold", native_fold);
+  native(ctx, "cat", native_cat);
+  native(ctx, "filter", native_filter);
+  native(ctx, "not", native_not);
+  native(ctx, "apush", native_apush);
+  native(ctx, "alen", native_alen);
+  native(ctx, "aget", native_aget);
+  native(ctx, "aset", native_aset);
+  native(ctx, "adel", native_adel);
+  native(ctx, "times", native_times);
   callback(ctx);
   tgc_stop(&gc);
 }
