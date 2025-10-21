@@ -2,6 +2,7 @@
 #define kokoki_h
 
 #include <stdbool.h>
+#include <stddef.h>
 
 typedef enum KType {
   KT_NIL,        // null value

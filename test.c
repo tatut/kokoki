@@ -34,9 +34,17 @@ KVal top;
       /*printf("✅ SUCCESS: " name "\n");*/                                    \
       printf("✅ ");                                                           \
       success++;                                                               \
+    } else {                                                                   \
+      printf("STACK:");                                                        \
+      for (size_t i = 0; i < ctx->stack->size; i++) {                          \
+        printf(" ");                                                           \
+        kval_dump(ctx->stack->items[i]);                                       \
+      }                                                                        \
+      printf("\n");                                                            \
     }                                                                          \
     ctx->stack->size = 0;                                                      \
   }
+
 
 
 
@@ -171,7 +179,16 @@ void run_tests(KCtx *ctx) {
   TEST("adel", "[1 2 3 4] 2 adel", 1, is_num_arr(top, 3, (double[]){1,2,4}));
 
   TEST("times1", "3 4 times + + +", 1, is_num(top, 12));
-  TEST("times2", "[] [6 apush] 3 times", 1, is_num_arr(top, 3, (double[]){6,6,6}));
+  TEST("times2", "[] [6 apush] 3 times", 1,
+       is_num_arr(top, 3, (double[]){6, 6, 6}));
+
+  TEST("read new ref", "@foo ?", 1, top.type == KT_NIL);
+  TEST("write ref", "@foo 42 !", 0, true);
+  TEST("write+read ref", "[] @foo 42 ! @foo ? apush", 1,
+       is_num_arr(top, 1, (double[]){42}));
+  TEST("read multiple", "@x 666 ! @x ? @x ? =", 1, top.type == KT_TRUE);
+  TEST("swap ref", "@x 40 ! @x [2 +] !! @x ?", 1, is_num(top, 42));
+  TEST("swap ref value", "@x 4.2 ! @x [10 *] !?", 1, is_num(top, 42));
 }
 
 int main(int argc, char **argv) {

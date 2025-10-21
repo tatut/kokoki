@@ -256,7 +256,8 @@ bool is_alphanumeric(char ch) { return is_alpha(ch) || is_digit(ch); }
 
 bool is_name_start_char(char ch) {
   return is_alpha(ch) || ch == '_' || ch == '$' || ch == '+' || ch == '<' ||
-         ch == '>' || ch == '=' || ch == '?' || ch == '.' || ch == '*' || ch == '%';
+         ch == '>' || ch == '=' || ch == '?' || ch == '.' || ch == '*' ||
+         ch == '%' || ch == '!' ;
 }
 
 bool is_name_char(char ch) {
@@ -560,6 +561,7 @@ void exec(KCtx *ctx, KVal v) {
   case KT_NUMBER:
   case KT_STRING:
   case KT_ARRAY:
+  case KT_REF_NAME:
     arr_push(ctx->stack, v);
     break;
 
@@ -633,6 +635,23 @@ void kokoki_native(KCtx *ctx, const char *name, void (*callback)(KCtx *)) {
 #define DO(name, op, type) num_op(name, op, type)
 DO_NUM_OPS
 #undef DO
+
+#define STRINGIFY2(X) #X
+#define STRINGIFY(X) STRINGIFY2(X)
+
+#define IN(name, typename)                                                     \
+  KVal name = arr_pop(ctx->stack);                                             \
+  if (name.type != typename) {                                                 \
+    KVal errv;                                                                 \
+    err(errv, "Expected type " STRINGIFY(type));                               \
+    arr_push(ctx->stack, errv);                                                \
+    return;                                                                    \
+  }
+
+
+#define IN_ANY(name) KVal name = arr_pop(ctx->stack)
+#define OUT(v) arr_push(ctx->stack, (v))
+
 
 void native_mod(KCtx *ctx) {
   KVal b = arr_pop(ctx->stack);
@@ -912,23 +931,101 @@ void native_adel(KCtx *ctx) {
   }
 }
 
+bool check_ref_name(KVal ref, KVal *errv) {
+ if (ref.type != KT_REF_NAME) {
+   err(*errv, "Expected variable reference.");
+   return false;
+ }
+ return true;
+}
+
+bool check_ref_value(KVal refv, KVal *errv) {
+  if (refv.type != KT_REF_VALUE) {
+    err(*errv, "Expected variable value.");
+    return false;
+  }
+  return true;
+}
+
 void native_deref(KCtx *ctx) {
   KVal ref = arr_pop(ctx->stack);
-  arr_push(ctx->stack, ref.data.ref->value);
+  KVal val;
+  if(check_ref_name(ref, &val)) {
+    KVal refv = hm_get(ctx->names, ref);
+    if (refv.type == KT_NIL)
+      val = refv;
+    else
+      val = refv.data.ref->value;
+  }
+  arr_push(ctx->stack, val);
 }
 
 void native_reset(KCtx *ctx) {
   KVal val = arr_pop(ctx->stack);
   KVal ref = arr_pop(ctx->stack);
-  ref.data.ref->value = val;
+  KVal err;
+  if (check_ref_name(ref, &err)) {
+    KVal refv = hm_get(ctx->names, ref);
+    if (refv.type == KT_NIL) {
+      // not found, create new reference value holder
+      refv = (KVal){.type = KT_REF_VALUE,
+                    .data.ref = tgc_alloc(&gc, sizeof(KRef))};
+      refv.data.ref->value = val;
+      hm_put(ctx->names, ref, refv);
+      return;
+    } else {
+      // already exists, just set it
+      refv.data.ref->value = val;
+      return;
+    }
+  }
+
+  arr_push(ctx->stack, err);
 }
+
+void native_swap_ref_value(KCtx *ctx, bool value_in_stack) {
+  IN_ANY(code);
+  if(code.type == KT_ARRAY) code.type = KT_BLOCK;
+  IN(ref, KT_REF_NAME);
+  KVal err, refv;
+  if (check_ref_name(ref, &err)) {
+    refv = hm_get(ctx->names, ref);
+    if (refv.type == KT_NIL) {
+      // not found, create new reference value holder
+      refv = (KVal){.type = KT_REF_VALUE,
+                    .data.ref = tgc_alloc(&gc, sizeof(KRef))};
+      refv.data.ref->value = (KVal){.type = KT_NIL};
+      hm_put(ctx->names, ref, refv);
+    }
+    // put value in stack and execute code
+    OUT(refv.data.ref->value);
+    exec(ctx, code);
+    IN_ANY(res);
+    refv.data.ref->value = res;
+    if(value_in_stack) OUT(res);
+    return;
+  }
+  OUT(err);
+}
+
+/* @foo [inc] !!
+ * update value of foo by running [inc] with the current value on the top
+ * doesn't leave anything on stack
+ */
+void native_swap_ref(KCtx *ctx) { native_swap_ref_value(ctx, false); }
+
+/* @foo [inc] !?
+ * update value of foo, like !!, but leaves new value on stack
+ */
+void native_swap_ref_cur(KCtx *ctx) { native_swap_ref_value(ctx, true); }
+
+
+
 /*
  * while top of the stack is true
  * @foo 0 !
  * [ "hello" . ] [ @foo get 10 > ]  while
  */
-#define STRINGIFY2(X) #X
-#define STRINGIFY(X) STRINGIFY2(X)
 
 void kokoki_init(void (*callback)(KCtx*)) {
   int dummy;
@@ -959,6 +1056,8 @@ void kokoki_init(void (*callback)(KCtx*)) {
   native(ctx, "times", native_times);
   native(ctx, "?", native_deref);
   native(ctx, "!", native_reset);
+  native(ctx, "!!", native_swap_ref);
+  native(ctx, "!?", native_swap_ref_cur);
   callback(ctx);
   tgc_stop(&gc);
 }
