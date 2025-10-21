@@ -87,6 +87,7 @@ uint32_t kval_hash(KVal v) { // MurmurOAAT_32
     return -1;
   case KT_STRING:
   case KT_NAME:
+  case KT_REF_NAME:
     return hash_str(v.data.string);
   case KT_ARRAY:
     return hash_ptr(v.data.array);
@@ -97,6 +98,8 @@ uint32_t kval_hash(KVal v) { // MurmurOAAT_32
   }
   case KT_NATIVE:
     return hash_ptr(v.data.native);
+  case KT_REF_VALUE:
+    return hash_ptr(v.data.ref);
 
   default: return 0;// ERROR, EOF, KT_DEFINIION don't have hash
   }
@@ -114,10 +117,6 @@ uint32_t kval_hash(KVal v) { // MurmurOAAT_32
   }
 
 
-
-
-
-
 bool kval_eq(KVal a, KVal b) {
   if (a.type != b.type)
     return false;
@@ -133,9 +132,14 @@ bool kval_eq(KVal a, KVal b) {
   case KT_STRING:
   case KT_NAME:
   case KT_ERROR:
+  case KT_REF_NAME:
     if (a.data.string.len != b.data.string.len)
       return false;
-    return memcmp(a.data.string.data, b.data.string.data, a.data.string.len)==0;
+    return memcmp(a.data.string.data, b.data.string.data, a.data.string.len) ==
+           0;
+  case KT_REF_VALUE:
+    return a.data.ref == b.data.ref;
+
   case KT_NUMBER:
     return a.data.number == b.data.number;
 
@@ -200,8 +204,6 @@ void hm_put(KHashMap *hm, KVal key, KVal value) {
   hm->items[idx] = (KHashMapEntry){.key = key, .value = value, .used = true};
   hm->size++;
 }
-
-
 
 KVal hm_get(KHashMap *hm, KVal key) {
   uint32_t hash = kval_hash(key);
@@ -288,8 +290,17 @@ KVal read_name(char **at) {
   *at = end;
   return (KVal){.type = KT_NAME,
                 .data.string = {.len = end - start, .data = start}};
-
 }
+KVal read_ref(char **at) {
+  char *start = *at + 1;
+  char *end = start;
+  while (is_name_char(*end))
+    end++;
+  *at = end;
+  KVal ref = (KVal){.type = KT_REF_NAME, .data.string = {.len = end - start, .data = start }};
+  return ref;
+}
+
 KVal read_num(char **at) {
   double mult = 1.0;
   double val = 0;
@@ -398,7 +409,10 @@ KVal read_definition(char **at) {
 KVal read(char **at) {
   skipws(at);
   switch (**at) {
-  case 0: return (KVal){.type=KT_EOF};
+  case 0:
+    return (KVal){.type = KT_EOF};
+  case '@':
+    return read_ref(at);
   case '"':
     return read_str(at);
   case '0': case '1': case '2': case '3': case '4': case '5':
@@ -457,6 +471,14 @@ void kval_dump(KVal v) {
     break;
   case KT_NAME:
     printf("%.*s", (int)v.data.string.len, v.data.string.data);
+    break;
+  case KT_REF_NAME:
+    printf("@%.*s", (int)v.data.string.len, v.data.string.data);
+    break;
+  case KT_REF_VALUE:
+    printf("#<Ref: ");
+    kval_dump(v.data.ref->value);
+    printf(">");
     break;
   case KT_NUMBER:
     printf("%f", v.data.number);
@@ -890,6 +912,16 @@ void native_adel(KCtx *ctx) {
   }
 }
 
+void native_deref(KCtx *ctx) {
+  KVal ref = arr_pop(ctx->stack);
+  arr_push(ctx->stack, ref.data.ref->value);
+}
+
+void native_reset(KCtx *ctx) {
+  KVal val = arr_pop(ctx->stack);
+  KVal ref = arr_pop(ctx->stack);
+  ref.data.ref->value = val;
+}
 /*
  * while top of the stack is true
  * @foo 0 !
@@ -925,6 +957,8 @@ void kokoki_init(void (*callback)(KCtx*)) {
   native(ctx, "aset", native_aset);
   native(ctx, "adel", native_adel);
   native(ctx, "times", native_times);
+  native(ctx, "?", native_deref);
+  native(ctx, "!", native_reset);
   callback(ctx);
   tgc_stop(&gc);
 }
@@ -934,7 +968,7 @@ void kokoki_eval(KCtx *ctx, const char *source) {
   char **at = &src;
   KVal kv = read(at);
 
-  while(kv.type != KT_EOF) {
+  while (kv.type != KT_EOF) {
     exec(ctx, kv);
     kv = read(at);
   }

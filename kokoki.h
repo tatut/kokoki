@@ -4,20 +4,21 @@
 #include <stdbool.h>
 
 typedef enum KType {
-  KT_NIL, // null value
-  KT_TRUE, // true boolean
-  KT_FALSE, // false boolean
-  KT_NUMBER, // numbers double precision
-  KT_STRING, // string
-  KT_NAME, // variable name
-  KT_ARRAY, // dynamic array of items
-  KT_HASHMAP, // hashmap of values
-  KT_NATIVE, // native implemented function
-  KT_ERROR,  // error object (parsing or runtime)
-  // syntactic tokens, not real runtime values
+  KT_NIL,        // null value
+  KT_TRUE,       // true boolean
+  KT_FALSE,      // false boolean
+  KT_NUMBER,     // numbers double precision
+  KT_STRING,     // string
+  KT_NAME,       // variable name
+  KT_ARRAY,      // dynamic array of items
+  KT_HASHMAP,    // hashmap of values
+  KT_REF_NAME,   // reference a named container for a value
+  KT_REF_VALUE,  // the actual instance containing the value
+  KT_NATIVE,     // native implemented function
+  KT_ERROR,      // error object (parsing or runtime)
   KT_DEFINITION, // ':' definition (uses array where 1st item is the name)
-  KT_BLOCK, // type of array that is executed in place
-  KT_EOF,
+  KT_BLOCK,      // type of array that is executed in place
+  KT_EOF,        // end of input
 } KType;
 
 typedef struct KVal KVal;
@@ -33,6 +34,7 @@ typedef struct KString {
 } KString;
 
 typedef struct KCtx KCtx;
+typedef struct KRef KRef;
 
 typedef struct KVal {
   KType type;
@@ -41,8 +43,13 @@ typedef struct KVal {
     KString string;
     KArray *array;
     void (*native)(KCtx*);
+    KRef *ref;
   } data;
 } KVal;
+
+typedef struct KRef {
+  KVal value;
+} KRef;
 
 typedef struct KHashMapEntry {
   KVal key;
