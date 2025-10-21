@@ -176,20 +176,29 @@ void hm_put(KHashMap *hm, KVal key, KVal value) {
       fprintf(stderr, "Out of memory for hashmap\n");
       exit(1);
     }
-    for (size_t i = 0; i < hm->size; i++) {
-      for (idx = hash % new_capacity; (new_items[idx].used && !kval_eq(key, new_items[idx].key));
-           idx = (idx + 1) % new_capacity)
-        ;
-      new_items[idx] = (KHashMapEntry) {.key = key, .value = value, .used = true };
-    }
-    if(hm->items) free(hm->items);
-    hm->items = new_items;
+    KHashMapEntry *old_items = hm->items;
+    size_t old_size = hm->size;
+
     hm->capacity = new_capacity;
+    hm->items = new_items;
+    hm->size = 0;
+
+    for (size_t i = 0; i < old_size; i++) {
+      hm_put(hm, old_items[i].key, old_items[i].value);
+    }
+    if(old_items) tgc_free(&gc, old_items);
   }
-  for (idx = hash % hm->capacity; (hm->items[idx].used && !kval_eq(key, hm->items[idx].key));
-       idx = (idx + 1) % hm->capacity)
-    ;
+  idx = hash % hm->capacity;
+  size_t orig_idx = idx;
+  while(hm->items[idx].used && !kval_eq(key, hm->items[idx].key)) {
+    idx = (idx + 1) % hm->capacity;
+    if (idx == orig_idx) {
+      fprintf(stderr, "hm_put failed, no free space anywhere in table!\n");
+      return;
+    }
+  }
   hm->items[idx] = (KHashMapEntry){.key = key, .value = value, .used = true};
+  hm->size++;
 }
 
 
