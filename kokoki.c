@@ -173,7 +173,7 @@ void hm_put(KHashMap *hm, KVal key, KVal value) {
   uint32_t hash = kval_hash(key);
   size_t idx;
   if (hm->size == hm->capacity) {
-    size_t new_capacity = hm->capacity == 0 ? 32 : hm->capacity * 1.62;
+    size_t new_capacity = hm->capacity == 0 ? 64 : hm->capacity * 1.62;
     // we need to rehash
     KHashMapEntry *new_items = tgc_calloc(&gc, new_capacity, sizeof(KHashMapEntry));
     if (!new_items) {
@@ -209,14 +209,14 @@ KVal hm_get(KHashMap *hm, KVal key) {
   uint32_t hash = kval_hash(key);
   size_t idx = hash % hm->capacity;
   size_t orig_idx = idx;
-  printf("\n----%d search for: ", key.type); kval_dump(key); printf("- hash: %d, idx: %zu----\n", hash, idx);
+  //printf("\n----%d search for: ", key.type); kval_dump(key); printf("- hash: %d, idx: %zu----\n", hash, idx);
   while (hm->items[idx].used) {
-            printf("eq? ");
+    /*printf("eq? ");
     kval_dump(key);
     printf(" vs: ");
     kval_dump(hm->items[idx].key);
     printf(" ? %s\n", kval_eq(key, hm->items[idx].key) ? "true" : "false");
-
+    */
     if (kval_eq(key, hm->items[idx].key))
       return hm->items[idx].value;
     idx = (idx + 1) % hm->capacity;
@@ -247,6 +247,13 @@ void skipws(char **at) {
         next(at);
         c = **at;
       }
+      goto start;
+    } else if (c == '(') {
+      while (c != ')') {
+        next(at);
+        c = **at;
+      }
+      next(at);
       goto start;
     }
   }
@@ -353,7 +360,9 @@ void arr_push(KArray *arr, KVal v) {
       exit(1);
     }
   }
+  //printf("arr->size before push: %zu\n", arr->size);
   arr->items[arr->size++] = v;
+  //printf("arr->size after push: %zu\n", arr->size);
 }
 
 void arr_remove_first(KArray *arr) {
@@ -423,7 +432,6 @@ KVal read_definition(char **at) {
 
 KVal read(char **at) {
   skipws(at);
-  printf("READING VALUE AT: %c\n", **at);
   switch (**at) {
   case 0:
     return (KVal){.type = KT_EOF};
@@ -432,8 +440,15 @@ KVal read(char **at) {
   case '"':
     return read_str(at);
   case '0': case '1': case '2': case '3': case '4': case '5':
-  case '6': case '7': case '8': case '9': case '-':
+  case '6': case '7': case '8': case '9':
     return read_num(at);
+  case '-':
+    // read the number or name depending on the next char
+    if (is_digit(*(*at + 1)))
+      return read_num(at);
+    else
+      return read_name(at);
+
   case 't': {
     if (looking_at(*at, "true")) {
       *at = *at + 4;
@@ -557,7 +572,7 @@ void debug_exec(KCtx *ctx, KVal v) {
 }
 
 void exec(KCtx *ctx, KVal v) {
-  debug_exec(ctx, v);
+  //debug_exec(ctx, v);
   switch (v.type) {
   case KT_NAME: {
     KVal name = hm_get(ctx->names, v);
@@ -782,18 +797,36 @@ void native_each(KCtx *ctx) {
   if(code.type == KT_ARRAY) code.type = KT_BLOCK;
   KVal arr = arr_pop(ctx->stack);
   KVal error;
-  if (arr.type != KT_ARRAY) {
-    err(error, "Expected array to go through");
-    arr_push(ctx->stack, error);
-    return;
+  if(arr.type == KT_ARRAY) {
+    for (size_t i = 0; i < arr.data.array->size; i++) {
+      KVal item = arr.data.array->items[i];
+      arr_push(ctx->stack, item);
+      exec(ctx, code);
+      arr.data.array->items[i] = arr_pop(ctx->stack);
+    }
+  } else if (arr.type == KT_STRING) {
+    for (size_t i = 0; i < arr.data.string.len; i++) {
+      KVal byte = (KVal){.type = KT_NUMBER,
+                         .data.number = (double)arr.data.string.data[i]};
+      arr_push(ctx->stack, byte);
+      exec(ctx, code);
+      KVal v = arr_pop(ctx->stack);
+      if (v.type != KT_NUMBER) {
+        err(error, "Can't store non-number value to string index: %zu", i);
+        goto error;
+      }
+      arr.data.string.data[i] = (char) v.data.number;
+    }
+  } else {
+    err(error, "Expected array or string to go through");
+    goto error;
   }
-  for (size_t i = 0; i < arr.data.array->size; i++) {
-    KVal item = arr.data.array->items[i];
-    arr_push(ctx->stack, item);
-    exec(ctx, code);
-    arr.data.array->items[i] = arr_pop(ctx->stack);
-  }
+
   arr_push(ctx->stack, arr);
+  return;
+
+  error:
+  arr_push(ctx->stack, error);
 }
 
 void native_fold(KCtx *ctx) {
@@ -801,27 +834,37 @@ void native_fold(KCtx *ctx) {
   if(code.type == KT_ARRAY) code.type = KT_BLOCK;
   KVal arr = arr_pop(ctx->stack);
   KVal error;
-  if (arr.type != KT_ARRAY) {
-    err(error, "Expected array to fold");
+  if(arr.type == KT_ARRAY) {
+    for (size_t i = 0; i < arr.data.array->size; i++) {
+      KVal item = arr.data.array->items[i];
+      arr_push(ctx->stack, item);
+      if(i)
+        exec(ctx, code);
+    }
+  } else if (arr.type == KT_STRING) {
+    for (size_t i = 0; i < arr.data.string.len; i++) {
+      KVal item =
+          (KVal){.type = KT_NUMBER, .data.number = arr.data.string.data[i]};
+      arr_push(ctx->stack, item);
+      if(i)
+        exec(ctx, code);
+    }
+  } else {
+    err(error, "Expected array or string to fold");
     arr_push(ctx->stack, error);
-    return;
   }
-  for (size_t i = 0; i < arr.data.array->size; i++) {
-    KVal item = arr.data.array->items[i];
-    arr_push(ctx->stack, item);
-    if(i)
-      exec(ctx, code);
-  }
+}
+
+bool is_uint8_num(KVal n) {
+  return n.type == KT_NUMBER && (long) n.data.number >= 0 &&
+    (long) n.data.number <= 255;
 }
 
 void native_cat(KCtx *ctx) {
   KVal b = arr_pop(ctx->stack);
   KVal a = arr_pop(ctx->stack);
   KVal error;
-  if (b.type != KT_STRING || a.type != KT_STRING) {
-    err(error, "Expected two strings to join");
-    arr_push(ctx->stack, error);
-  } else {
+  if (b.type == KT_STRING && a.type == KT_STRING) {
     size_t len = a.data.string.len + b.data.string.len;
     KVal str = (KVal) {
       .type = KT_STRING, .data.string = {
@@ -831,8 +874,28 @@ void native_cat(KCtx *ctx) {
     };
     memcpy(str.data.string.data, a.data.string.data, a.data.string.len);
     memcpy(&str.data.string.data[a.data.string.len], b.data.string.data, b.data.string.len);
-    arr_push(ctx->stack, str);
+    OUT(str);
+  } else if (a.type == KT_STRING && is_uint8_num(b)) {
+    // append char to a
+    size_t len = a.data.string.len + 1;
+    KVal str = (KVal){.type = KT_STRING,
+                      .data.string = {.len = len, .data = tgc_alloc(&gc, len)}};
+    memcpy(str.data.string.data, a.data.string.data, len - 1);
+    str.data.string.data[len-1] = (uint8_t) b.data.number;
+    OUT(str);
+  } else if (is_uint8_num(a) && b.type == KT_STRING) {
+    // prepend char to b
+    size_t len = b.data.string.len + 1;
+    KVal str = (KVal){.type = KT_STRING,
+                      .data.string = {.len = len, .data = tgc_alloc(&gc, len)}};
+    str.data.string.data[0] = (uint8_t)a.data.number;
+    memcpy(&str.data.string.data[1], b.data.string.data, len - 1);
+    OUT(str);
+  } else {
+    err(error, "Expected two strings or a string and a number (0-255) to join");
+    arr_push(ctx->stack, error);
   }
+
 }
 
 void native_filter(KCtx *ctx) {
@@ -869,19 +932,25 @@ void native_equals(KCtx *ctx) {
   arr_push(ctx->stack, (KVal){.type = kval_eq(a, b) ? KT_TRUE : KT_FALSE});
 }
 
+bool falsy(KVal v) { return (v.type == KT_FALSE || v.type == KT_NIL); }
+
 void native_not(KCtx *ctx) {
-  KType t = arr_pop(ctx->stack).type;
-  if (t == KT_FALSE || t == KT_NIL) {
+  if(falsy(arr_pop(ctx->stack))) {
     arr_push(ctx->stack, (KVal){.type = KT_TRUE});
   } else {
     arr_push(ctx->stack, (KVal){.type = KT_FALSE});
   }
 }
 
+void native_and(KCtx *ctx) {
+  IN_ANY(b);
+  IN_ANY(a);
+  OUT((KVal){.type = (falsy(a) || falsy(b)) ? KT_FALSE : KT_TRUE});
+}
+
 void native_apush(KCtx *ctx) {
-  KVal v = arr_pop(ctx->stack);
-  KVal arr = arr_pop(ctx->stack);
-  // assert array
+  IN_ANY(v);
+  IN(arr, KT_ARRAY);
   arr_push(arr.data.array, v);
   arr_push(ctx->stack, arr);
 }
@@ -907,15 +976,53 @@ void native_aget(KCtx *ctx) {
   KVal idx = arr_pop(ctx->stack);
   KVal arr = arr_peek(ctx->stack);
   KVal ret;
-  size_t i = (size_t) idx.data.number;
-  if (i < 0 || i >= arr.data.array->size) {
-    err(ret, "Index out of bounds %zu (0 - %zu inclusive)", i, arr.data.array->size - 1);
+
+  if (arr.type != KT_ARRAY && arr.type != KT_STRING) {
+    err(ret, "Expected array or string to get from");
+  } else if (idx.type != KT_NUMBER) {
+    err(ret, "Expected number index to get");
   } else {
-    ret = arr.data.array->items[i];
+    size_t len =
+      arr.type == KT_ARRAY ? arr.data.array->size : arr.data.string.len;
+    size_t i = (size_t) idx.data.number;
+    if (i < 0 || i >= len) {
+      err(ret, "Index out of bounds %zu (0 - %zu inclusive)", i, len - 1);
+    } else {
+      ret = arr.type == KT_ARRAY
+                ? arr.data.array->items[i]
+                : (KVal){.type = KT_NUMBER,
+                         .data.number = arr.data.string.data[i]};
+    }
   }
   arr_push(ctx->stack, ret);
 }
 
+void native_reverse(KCtx *ctx) {
+  IN_ANY(arr);
+  KVal error;
+  if (arr.type == KT_STRING) {
+    size_t i = 0, j = arr.data.string.len-1;
+    while (i < j) {
+      char tmp = arr.data.string.data[i];
+      arr.data.string.data[i] = arr.data.string.data[j];
+      arr.data.string.data[j] = tmp;
+      i++; j--;
+    }
+  } else if (arr.type == KT_ARRAY) {
+    size_t i = 0, j = arr.data.array->size - 1;
+    while (i < j) {
+      KVal tmp = arr.data.array->items[i];
+      arr.data.array->items[i] = arr.data.array->items[j];
+      arr.data.array->items[j] = tmp;
+      i++; j--;
+    }
+  } else {
+    err(error, "Expected string or array to reverse");
+    OUT(error);
+    return;
+  }
+  OUT(arr);
+}
 void native_aset(KCtx *ctx) {
   KVal val = arr_pop(ctx->stack);
   KVal idx = arr_pop(ctx->stack);
@@ -1050,6 +1157,42 @@ void native_eval(KCtx *ctx) {
   tgc_free(&gc, src);
 }
 
+void native_use(KCtx *ctx) {
+  native_slurp(ctx);
+  native_eval(ctx);
+}
+
+KVal copy(KVal v) {
+ switch (v.type) {
+ case KT_ARRAY: {
+   KArray *arr = tgc_alloc(&gc, sizeof(KArray));
+   arr->capacity = v.data.array->capacity;
+   arr->size = 0;
+   arr->items = tgc_alloc(&gc, sizeof(KVal) * arr->capacity);
+   for (size_t i = 0; i < v.data.array->size; i++) {
+     arr_push(arr, copy(v));
+   }
+   return (KVal){.type = KT_ARRAY, .data.array = arr};
+ }
+ case KT_STRING: {
+   KString str = {.len = v.data.string.len,
+                  .data = tgc_alloc(&gc, v.data.string.len)};
+   memcpy(str.data, v.data.string.data, str.len);
+   return (KVal){.type = KT_STRING, .data.string = str};
+ }
+   // FIXME: implement hashmaps
+ default:
+    return v;
+  }
+}
+
+void native_copy(KCtx *ctx) {
+  /* make a fresh copy of item */
+  IN_ANY(v);
+  KVal c = copy(v);
+  OUT(c);
+}
+
 /*
  * while top of the stack is true
  * @foo 0 !
@@ -1078,6 +1221,7 @@ void kokoki_init(void (*callback)(KCtx*,void*), void *user) {
   native(ctx, "cat", native_cat);
   native(ctx, "filter", native_filter);
   native(ctx, "not", native_not);
+  native(ctx, "and", native_and);
   native(ctx, "apush", native_apush);
   native(ctx, "alen", native_alen);
   native(ctx, "aget", native_aget);
@@ -1089,6 +1233,9 @@ void kokoki_init(void (*callback)(KCtx*,void*), void *user) {
   native(ctx, "!!", native_swap_ref);
   native(ctx, "!?", native_swap_ref_cur);
   native(ctx, "eval", native_eval);
+  native(ctx, "use", native_use);
+  native(ctx, "reverse", native_reverse);
+  native(ctx, "copy", native_copy);
   callback(ctx,user);
   tgc_stop(&gc);
 }

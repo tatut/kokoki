@@ -1,0 +1,11 @@
+# Kokoki standard library
+
+# Convert string containing digits to an integer number
+: str->int (str -- num)
+  [48 -] each
+  [swap 10 * +] fold ;
+
+# Turn n top items in stack to an array
+# eg. 1 2 2 array => [1 2]
+: array (n-items* n -- arr)
+  [] copy swap [swap apush] swap times reverse ;

@@ -158,6 +158,9 @@ void run_tests(KCtx *ctx, void *user) {
   TEST("fold", "[1 2 3 0] [+] fold", 1, is_num(top, 6));
   TEST("fold1", "[42] [+] fold", 1, is_num(top, 42));
   TEST("cat", "\"foo\" \"bar\" cat", 1, is_str(top, "foobar"));
+  TEST("cat num 1", "\"foo\" 33 cat", 1, is_str(top, "foo!"));
+  TEST("cat num 2", "33 \"foo\" cat", 1, is_str(top, "!foo"));
+
   TEST("fold cat", "[\"foo\" \"bar\" \"baz\"] [cat] fold", 1,
        is_str(top, "foobarbaz"));
 
@@ -171,6 +174,7 @@ void run_tests(KCtx *ctx, void *user) {
   TEST("apush", "[ 1 2 ] 3 apush", 1, is_num_arr(top, 3, (double[]){1, 2, 3}));
   TEST("alen", "[1 2 3] alen", 2, is_num(top, 3));
   TEST("aget", "[1 2 3] 1 aget", 2, is_num(top, 2));
+  TEST("aget str", "\"foo!\" 3 aget", 2, is_num(top,33));
   TEST("aset", "[1 2 3] 1 42 aset", 1,
        is_num_arr(top, 3, (double[]){1, 42, 3}));
   TEST("aset end", "[1 2] 2 3 aset", 1, is_num_arr(top, 3, (double[]){1,2,3}));
@@ -191,6 +195,13 @@ void run_tests(KCtx *ctx, void *user) {
   TEST("swap ref value", "@x 4.2 ! @x [10 *] !?", 1, is_num(top, 42));
 
   TEST("eval", "\"4.2 10 *\" eval", 1, is_num(top, 42));
+
+  TEST("and1", "1 2 and", 1, top.type == KT_TRUE);
+  TEST("and2", "1 false and", 1, top.type == KT_FALSE);
+  TEST("and3", "true 42 and", 1, top.type == KT_TRUE);
+
+  TEST("rev", "[1 2 3] reverse", 1, is_num_arr(top, 3, (double[]){3, 2, 1}));
+  TEST("rev str", "\"foobar\" reverse", 1, is_str(top, "raboof"));
 }
 
 int main(int argc, char **argv) {
