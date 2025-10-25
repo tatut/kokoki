@@ -10,7 +10,8 @@ Uses [tgc](https://github.com/orangeduck/tgc) garbage collector.
 
 Kokoki is a concatenative stack language, loosely like Forth.
 
-Comment start with `#` and are until the end of line.
+Comment start with `#` and are until the end of line. Comments can also be added 
+by `(` and `)` mainly to document stack effects.
 Values push themselves on to the stack. Words operate on the stack.
 
 Examples.
