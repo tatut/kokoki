@@ -1176,7 +1176,7 @@ void native_swap_ref(KCtx *ctx) { native_swap_ref_value(ctx, false); }
  */
 void native_swap_ref_cur(KCtx *ctx) { native_swap_ref_value(ctx, true); }
 
-void kokoki_eval(KCtx *ctx, const char *source);
+bool kokoki_eval(KCtx *ctx, const char *source);
 void native_eval(KCtx *ctx) {
   IN(source, KT_STRING);
   char *src = tgc_alloc(&gc, source.data.string.len + 1);
@@ -1277,13 +1277,19 @@ void kokoki_init(void (*callback)(KCtx*,void*), void *user) {
   tgc_stop(&gc);
 }
 
-void kokoki_eval(KCtx *ctx, const char *source) {
+bool kokoki_eval(KCtx *ctx, const char *source) {
   char *src = (char*) source;
   char **at = &src;
   KVal kv = read(at);
 
   while (kv.type != KT_EOF) {
-    exec(ctx, kv);
+    if (kv.type == KT_ERROR) {
+      kval_dump(kv);
+      return false;
+    } else {
+      exec(ctx, kv);
+    }
     kv = read(at);
   }
+  return true;
 }

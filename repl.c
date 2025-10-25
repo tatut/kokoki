@@ -6,7 +6,7 @@
 static char line[MAX_LINE];
 
 char *prompt(KCtx *ctx) {
-  printf("kokoki(%zu)> ", ctx->stack->size);
+  printf("\nkokoki(%zu)> ", ctx->stack->size);
   fflush(stdout);
   return fgets(line, MAX_LINE, stdin);
 }
@@ -15,8 +15,9 @@ void repl(KCtx *ctx, void *user) {
   printf("Welcome to Korvatunturin Konkatenatiivinen Kieli (kokoki) REPL!\n");
   char *in;
   while((in = prompt(ctx))) {
-    kokoki_eval(ctx, (const char *)in);
-    printf("  ok\n");
+    if(kokoki_eval(ctx, (const char *)in)) {
+      printf("  ok");
+    }
   }
   printf("Bye!\n");
 }

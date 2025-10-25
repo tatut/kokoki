@@ -76,8 +76,9 @@ void kokoki_init(void (*callback)(KCtx*,void*), void* user);
 
 /**
  * Evaluate the given source code.
+ * Returns true on success, false otherwise.
  */
-void kokoki_eval(KCtx *ctx, const char *source);
+bool kokoki_eval(KCtx *ctx, const char *source);
 
 /**
  * Register a native C implemented word.
@@ -85,5 +86,8 @@ void kokoki_eval(KCtx *ctx, const char *source);
 void kokoki_native(KCtx * ctx, const char *name, void (*native)(KCtx *));
 
 void kval_dump(KVal v);
+
+void arr_push(KArray *arr, KVal val);
+KVal arr_pop(KArray *arr);
 
 #endif
