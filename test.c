@@ -127,7 +127,7 @@ bool is_num(KVal v, double num) {
 
 
 
-void run_tests(KCtx *ctx) {
+void run_tests(KCtx *ctx, void *user) {
   TEST("comment", "# this is a comment\n 1 2 3 + # and so is this\n+", 1,
        top.data.number == 6);
   TEST("dup", "42 dup", 2, top.data.number == 42);
@@ -189,10 +189,12 @@ void run_tests(KCtx *ctx) {
   TEST("read multiple", "@x 666 ! @x ? @x ? =", 1, top.type == KT_TRUE);
   TEST("swap ref", "@x 40 ! @x [2 +] !! @x ?", 1, is_num(top, 42));
   TEST("swap ref value", "@x 4.2 ! @x [10 *] !?", 1, is_num(top, 42));
+
+  TEST("eval", "\"4.2 10 *\" eval", 1, is_num(top, 42));
 }
 
 int main(int argc, char **argv) {
-  kokoki_init(run_tests);
+  kokoki_init(run_tests,NULL);
   printf("\n%d success\n", success);
   if (fails) {
     fprintf(stderr, "%d failures!\n", fails);

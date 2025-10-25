@@ -72,7 +72,7 @@ typedef struct KCtx {
 /**
  * Initialize system, calls given callback with the system.
  */
-void kokoki_init(void (*callback)(KCtx*));
+void kokoki_init(void (*callback)(KCtx*,void*), void* user);
 
 /**
  * Evaluate the given source code.

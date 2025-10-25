@@ -1,5 +1,5 @@
-kokoki: kokoki.c kokoki.h tgc/tgc.c tgc/tgc.h
-	cc -gdwarf  -o kokoki kokoki.c tgc/tgc.c
+kokoki: kokoki.c kokoki.h repl.c tgc/tgc.c tgc/tgc.h
+	cc -gdwarf  -o kokoki kokoki.c repl.c tgc/tgc.c
 
 run: kokoki
 	./kokoki

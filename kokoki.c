@@ -175,7 +175,7 @@ void hm_put(KHashMap *hm, KVal key, KVal value) {
   if (hm->size == hm->capacity) {
     size_t new_capacity = hm->capacity == 0 ? 32 : hm->capacity * 1.62;
     // we need to rehash
-    KHashMapEntry *new_items = tgc_calloc(&gc, sizeof(KHashMapEntry), new_capacity);
+    KHashMapEntry *new_items = tgc_calloc(&gc, new_capacity, sizeof(KHashMapEntry));
     if (!new_items) {
       fprintf(stderr, "Out of memory for hashmap\n");
       exit(1);
@@ -208,8 +208,15 @@ void hm_put(KHashMap *hm, KVal key, KVal value) {
 KVal hm_get(KHashMap *hm, KVal key) {
   uint32_t hash = kval_hash(key);
   size_t idx = hash % hm->capacity;
-  size_t orig_idx;
+  size_t orig_idx = idx;
+  printf("\n----%d search for: ", key.type); kval_dump(key); printf("- hash: %d, idx: %zu----\n", hash, idx);
   while (hm->items[idx].used) {
+            printf("eq? ");
+    kval_dump(key);
+    printf(" vs: ");
+    kval_dump(hm->items[idx].key);
+    printf(" ? %s\n", kval_eq(key, hm->items[idx].key) ? "true" : "false");
+
     if (kval_eq(key, hm->items[idx].key))
       return hm->items[idx].value;
     idx = (idx + 1) % hm->capacity;
@@ -276,30 +283,37 @@ bool looking_at(char *at, char *word) {
   return true;
 }
 
+KVal copy_str(KType type, char *start, char *end) {
+  size_t len = (size_t)(end - start);
+  KVal s = (KVal){.type = type,
+                  .data.string = {.len = len, .data = tgc_alloc(&gc, len)}};
+  memcpy(s.data.string.data, start, len);
+  return s;
+}
+
 KVal read_str(char **at) {
   char *start = *at + 1;
   char *end = start;
   while (*end != '"') end++;
   *at = end + 1;
-  return (KVal){.type = KT_STRING,
-                .data.string = {.len = end - start, .data = start}};
+  return copy_str(KT_STRING, start, end);
 }
+
 KVal read_name(char **at) {
   char *start = *at;
   char *end = start;
   while (is_name_char(*end)) end++;
   *at = end;
-  return (KVal){.type = KT_NAME,
-                .data.string = {.len = end - start, .data = start}};
+  return copy_str(KT_NAME, start, end);
 }
+
 KVal read_ref(char **at) {
   char *start = *at + 1;
   char *end = start;
   while (is_name_char(*end))
     end++;
   *at = end;
-  KVal ref = (KVal){.type = KT_REF_NAME, .data.string = {.len = end - start, .data = start }};
-  return ref;
+  return copy_str(KT_REF_NAME, start, end);
 }
 
 KVal read_num(char **at) {
@@ -409,6 +423,7 @@ KVal read_definition(char **at) {
 
 KVal read(char **at) {
   skipws(at);
+  printf("READING VALUE AT: %c\n", **at);
   switch (**at) {
   case 0:
     return (KVal){.type = KT_EOF};
@@ -468,7 +483,7 @@ void kval_dump(KVal v) {
     printf("false");
     break;
   case KT_STRING:
-    printf("\"%.*s\"", (int) v.data.string.len, v.data.string.data);
+    printf("%.*s", (int) v.data.string.len, v.data.string.data);
     break;
   case KT_NAME:
     printf("%.*s", (int)v.data.string.len, v.data.string.data);
@@ -482,7 +497,11 @@ void kval_dump(KVal v) {
     printf(">");
     break;
   case KT_NUMBER:
-    printf("%f", v.data.number);
+    if ((v.data.number - (long)v.data.number) == 0.0) {
+      printf("%ld", (long)v.data.number);
+    } else {
+      printf("%f", v.data.number);
+    }
     break;
 
   case KT_ARRAY:
@@ -538,7 +557,7 @@ void debug_exec(KCtx *ctx, KVal v) {
 }
 
 void exec(KCtx *ctx, KVal v) {
-  //debug_exec(ctx, v);
+  debug_exec(ctx, v);
   switch (v.type) {
   case KT_NAME: {
     KVal name = hm_get(ctx->names, v);
@@ -667,6 +686,8 @@ void native_print(KCtx *ctx) {
   kval_dump(arr_pop(ctx->stack));
 }
 
+void native_nl(KCtx *ctx) { printf("\n"); }
+
 void native_cond(KCtx *ctx) {
   KVal cond = arr_pop(ctx->stack);
   if (cond.type != KT_ARRAY || cond.data.array->size % 2) {
@@ -743,8 +764,8 @@ void native_slurp(KCtx *ctx) {
   fread(in, b.st_size, 1, f);
   in[b.st_size] = 0;
   fclose(f);
-  arr_push(ctx->stack,
-           (KVal){.type = KT_STRING, .data.string = {.len = b.st_size, .data = in}});
+  arr_push(ctx->stack, (KVal){.type = KT_STRING,
+                              .data.string = {.len = b.st_size, .data = in}});
 }
 
 /* Takes 2 values: an array to process and code (array or word name) to run on each item.
@@ -1019,7 +1040,15 @@ void native_swap_ref(KCtx *ctx) { native_swap_ref_value(ctx, false); }
  */
 void native_swap_ref_cur(KCtx *ctx) { native_swap_ref_value(ctx, true); }
 
-
+void kokoki_eval(KCtx *ctx, const char *source);
+void native_eval(KCtx *ctx) {
+  IN(source, KT_STRING);
+  char *src = tgc_alloc(&gc, source.data.string.len + 1);
+  src[source.data.string.len] = 0;
+  memcpy(src, source.data.string.data, source.data.string.len);
+  kokoki_eval(ctx, src);
+  tgc_free(&gc, src);
+}
 
 /*
  * while top of the stack is true
@@ -1027,7 +1056,7 @@ void native_swap_ref_cur(KCtx *ctx) { native_swap_ref_value(ctx, true); }
  * [ "hello" . ] [ @foo get 10 > ]  while
  */
 
-void kokoki_init(void (*callback)(KCtx*)) {
+void kokoki_init(void (*callback)(KCtx*,void*), void *user) {
   int dummy;
   tgc_start(&gc, &dummy);
   KCtx *ctx = kctx_new();
@@ -1042,6 +1071,7 @@ void kokoki_init(void (*callback)(KCtx*)) {
   native(ctx, "exec", native_exec);
   native(ctx, "cond", native_cond);
   native(ctx, ".", native_print);
+  native(ctx, "nl", native_nl);
   native(ctx, "slurp", native_slurp);
   native(ctx, "each", native_each);
   native(ctx, "fold", native_fold);
@@ -1058,7 +1088,8 @@ void kokoki_init(void (*callback)(KCtx*)) {
   native(ctx, "!", native_reset);
   native(ctx, "!!", native_swap_ref);
   native(ctx, "!?", native_swap_ref_cur);
-  callback(ctx);
+  native(ctx, "eval", native_eval);
+  callback(ctx,user);
   tgc_stop(&gc);
 }
 
