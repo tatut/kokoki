@@ -42,8 +42,11 @@ KVal top;
       }                                                                        \
       printf("\n");                                                            \
     }                                                                          \
+    fflush(stdout);                                                            \
     ctx->stack->size = 0;                                                      \
   }
+
+
 
 
 
@@ -125,9 +128,7 @@ bool is_num(KVal v, double num) {
   "  [dup 55 <] \"adult\""                                                     \
   "  true       \"older adult\"] cond"
 
-
-
-void run_tests(KCtx *ctx, void *user) {
+void run_native_tests(KCtx *ctx) {
   TEST("comment", "# this is a comment\n 1 2 3 + # and so is this\n+", 1,
        top.data.number == 6);
   TEST("dup", "42 dup", 2, is_num(top, 42));
@@ -203,6 +204,31 @@ void run_tests(KCtx *ctx, void *user) {
 
   TEST("rev", "[1 2 3] reverse", 1, is_num_arr(top, 3, (double[]){3, 2, 1}));
   TEST("rev str", "\"foobar\" reverse", 1, is_str(top, "raboof"));
+
+}
+
+void run_stdlib_tests(KCtx *ctx) {
+  kokoki_eval(ctx, "\"stdlib.ki\" use");
+
+  TEST("if1", "1 2 < \"yes\" if", 1, is_str(top, "yes"));
+  TEST("if2", "3 2 < \"yes\" if", 0, 1);
+
+  TEST("if-else1",
+       ": is-adult? 25 > \"is adult\" \"not an adult\" if-else ; "
+       "44 is-adult?",
+       1, is_str(top, "is adult"));
+  TEST("if-else2",
+       ": is-adult? 25 > \"is adult\" \"not an adult\" if-else ; "
+       "18 is-adult?",
+       1, is_str(top, "not an adult"));
+
+  TEST("str->int", "\"420\" str->int", 1, is_num(top, 420));
+
+}
+
+void run_tests(KCtx *ctx, void *user) {
+  run_native_tests(ctx);
+  run_stdlib_tests(ctx);
 }
 
 int main(int argc, char **argv) {
