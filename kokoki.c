@@ -448,7 +448,13 @@ KVal read(char **at) {
       return read_num(at);
     else
       return read_name(at);
-
+  case '\'': {
+    if (*(*at + 2) != '\'')
+      goto fail;
+    char ch = *(*at + 1);
+    *at += 3;
+    return (KVal){.type = KT_NUMBER, .data.number = ch};
+  }
   case 't': {
     if (looking_at(*at, "true")) {
       *at = *at + 4;
@@ -479,11 +485,13 @@ KVal read(char **at) {
       return read_name(at);
     }
   }
+ fail: {
   int err_len = snprintf(NULL, 0, "Parse error at: '%c'     ", **at);
   *at = *at + 1;
   char *err = tgc_alloc(&gc, err_len);
   snprintf(err, err_len, "Parse error at: '%c'", **at);
-  return (KVal){.type=KT_ERROR, .data.string = {.len=err_len-1, err}};
+  return (KVal){.type = KT_ERROR, .data.string = {.len = err_len - 1, err}};
+  }
 }
 
 void kval_dump(KVal v) {
