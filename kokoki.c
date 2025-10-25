@@ -987,9 +987,19 @@ void native_times(KCtx *ctx) {
   }
 }
 
-void native_alen(KCtx *ctx) {
-  KVal arr = arr_peek(ctx->stack);
-  arr_push(ctx->stack, (KVal) {.type = KT_NUMBER, .data.number = arr.data.array->size});
+void native_len(KCtx *ctx) {
+  IN_ANY(arr);
+  KVal len;
+  if (arr.type == KT_ARRAY) {
+    len = (KVal){.type = KT_NUMBER, .data.number = arr.data.array->size};
+  } else if (arr.type == KT_STRING) {
+    len = (KVal){.type = KT_NUMBER, .data.number = arr.data.string.len};
+  } else {
+    KVal len;
+    err(len, "Expected array or string for len");
+  }
+  OUT(arr);
+  OUT(len);
 }
 void native_aget(KCtx *ctx) {
   KVal idx = arr_pop(ctx->stack);
@@ -1249,7 +1259,7 @@ void kokoki_init(void (*callback)(KCtx*,void*), void *user) {
   native(ctx, "not", native_not);
   native(ctx, "and", native_and);
   native(ctx, "apush", native_apush);
-  native(ctx, "alen", native_alen);
+  native(ctx, "len", native_len);
   native(ctx, "aget", native_aget);
   native(ctx, "aset", native_aset);
   native(ctx, "adel", native_adel);

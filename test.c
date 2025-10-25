@@ -173,7 +173,7 @@ void run_tests(KCtx *ctx, void *user) {
   TEST("not4", "42 not", 1, top.type == KT_FALSE);
 
   TEST("apush", "[ 1 2 ] 3 apush", 1, is_num_arr(top, 3, (double[]){1, 2, 3}));
-  TEST("alen", "[1 2 3] alen", 2, is_num(top, 3));
+  TEST("len", "[1 2 3] len", 2, is_num(top, 3));
   TEST("aget", "[1 2 3] 1 aget", 2, is_num(top, 2));
   TEST("aget str", "\"foo!\" 3 aget", 2, is_num(top,33));
   TEST("aset", "[1 2 3] 1 42 aset", 1,
