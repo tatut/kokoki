@@ -9,3 +9,15 @@
 # eg. 1 2 2 array => [1 2]
 : array (n-items* n -- arr)
   [] copy swap [swap apush] swap times reverse ;
+
+# Implement if with the primitive cond
+# use like:
+# 1 2 < ["one is less than two".] if
+: if (bool code -- )
+  swap [] copy swap apush swap apush cond ;
+
+# Like if, but also takes an else block
+: if-else (bool then else -- )
+  swap rot [] copy swap apush swap apush
+  true apush swap apush
+  cond ;

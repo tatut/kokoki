@@ -738,6 +738,17 @@ void native_dup(KCtx *ctx) {
   arr_push(ctx->stack, v);
   arr_push(ctx->stack, v);
 }
+void native_rot(KCtx *ctx) {
+  // rotate 3rd item to top
+  // (a b c -- b c a)
+  IN_ANY(c);
+  IN_ANY(b);
+  IN_ANY(a);
+  OUT(b);
+  OUT(c);
+  OUT(a);
+}
+
 void native_swap(KCtx *ctx) {
   KVal b = arr_pop(ctx->stack);
   KVal a = arr_pop(ctx->stack);
@@ -1193,6 +1204,12 @@ void native_copy(KCtx *ctx) {
   OUT(c);
 }
 
+void native_dump(KCtx *ctx) {
+  printf("STACK(%zu): ", ctx->stack->size);
+  debug_stack(ctx);
+  printf("\n");
+}
+
 /*
  * while top of the stack is true
  * @foo 0 !
@@ -1209,6 +1226,7 @@ void kokoki_init(void (*callback)(KCtx*,void*), void *user) {
   native(ctx, "=", native_equals);
   native(ctx, "%", native_mod);
   native(ctx, "dup", native_dup);
+  native(ctx, "rot", native_rot);
   native(ctx, "swap", native_swap);
   native(ctx, "drop", native_drop);
   native(ctx, "exec", native_exec);
@@ -1236,6 +1254,7 @@ void kokoki_init(void (*callback)(KCtx*,void*), void *user) {
   native(ctx, "use", native_use);
   native(ctx, "reverse", native_reverse);
   native(ctx, "copy", native_copy);
+  native(ctx, "dump", native_dump);
   callback(ctx,user);
   tgc_stop(&gc);
 }

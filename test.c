@@ -130,13 +130,14 @@ bool is_num(KVal v, double num) {
 void run_tests(KCtx *ctx, void *user) {
   TEST("comment", "# this is a comment\n 1 2 3 + # and so is this\n+", 1,
        top.data.number == 6);
-  TEST("dup", "42 dup", 2, top.data.number == 42);
-  TEST("drop", "1 2 3 drop", 2, top.data.number == 2);
-  TEST("swap", "420 69 swap", 2, top.data.number == 420);
-  TEST("basics", "[200.0 200.0 + ] exec 0.67 + 10.01 dup + +", 1, top.data.number == 420.69);
+  TEST("dup", "42 dup", 2, is_num(top, 42));
+  TEST("rot", "1 2 3 rot", 3, is_num(top, 1));
+  TEST("drop", "1 2 3 drop", 2, is_num(top, 2));
+  TEST("swap", "420 69 swap", 2, is_num(top, 420));
+  TEST("basics", "[200.0 200.0 + ] exec 0.67 + 10.01 dup + +", 1, is_num(top, 420.69));
 
-  TEST("define value", ": pi 3.1415 ; 2 pi *", 1, top.data.number == 6.283);
-  TEST("define code", ": squared dup * ; 3 squared", 1, top.data.number == 9);
+  TEST("define value", ": pi 3.1415 ; 2 pi *", 1, is_num(top, 6.283));
+  TEST("define code", ": squared dup * ; 3 squared", 1, is_num(top, 9));
 
   TEST("compare <", "7 10 <", 1, top.type == KT_TRUE);
   TEST("compare >", "7 10 >", 1, top.type == KT_FALSE);
