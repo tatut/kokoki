@@ -376,6 +376,14 @@ void arr_remove_first(KArray *arr) {
     arr->size -= 1;
   }
 }
+KVal arr_remove_nth(KArray *arr, size_t idx) {
+  KVal item = arr->items[idx];
+  for (size_t i = idx; i < arr->size - 1; i++) {
+    arr->items[i] = arr->items[i+1];
+  }
+  arr->size -= 1;
+  return item;
+}
 
 const char *ERR_STACK_UNDERFLOW = "Stack underflow!";
 bool check_underflow(KArray *arr, KVal *val) {
@@ -748,6 +756,7 @@ void native_cond(KCtx *ctx) {
   }
 }
 
+/* Copy Nth value from top and push it to top */
 void native_pick(KCtx *ctx) {
   IN(num, KT_NUMBER);
   KVal error;
@@ -758,6 +767,21 @@ void native_pick(KCtx *ctx) {
     OUT(error);
   } else {
     OUT(ctx->stack->items[sz - 1 - idx]);
+  }
+}
+
+/* Move Nth value from top and push it to top */
+void native_move(KCtx *ctx) {
+  IN(num, KT_NUMBER);
+  KVal error;
+  size_t sz = ctx->stack->size;
+  size_t idx = (size_t) num.data.number;
+  if (sz <= idx) {
+    err(error, "Can't move item %zu from stack that has size %zu", idx, sz);
+    OUT(error);
+  } else {
+    KVal item = arr_remove_nth(ctx->stack, sz - 1 - idx);
+    OUT(item);
   }
 }
 
@@ -1262,6 +1286,7 @@ void kokoki_init(void (*callback)(KCtx*,void*), void *user) {
   native(ctx, "=", native_equals);
   native(ctx, "%", native_mod);
   native(ctx, "pick", native_pick);
+  native(ctx, "move", native_move);
   native(ctx, "dup", native_dup);
   native(ctx, "rot", native_rot);
   native(ctx, "swap", native_swap);

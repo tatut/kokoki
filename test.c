@@ -132,7 +132,10 @@ void run_native_tests(KCtx *ctx) {
        top.data.number == 6);
   TEST("pick1", "1 2 3 0 pick", 4, is_num(top, 3));
   TEST("pick2", "1 2 3 2 pick", 4, is_num(top, 1));
-  TEST("pick err", "1 2 42 pick", 3, is_error(top, "Can't pick item 42 from stack that has size 2"));
+  TEST("pick err", "1 2 42 pick", 3,
+       is_error(top, "Can't pick item 42 from stack that has size 2"));
+  TEST("move", "1 2 3 1 move", 3, is_num(top, 2) && is_num(bot, 1));
+  TEST("move err", "1 move", 1, is_error(top, "Can't move item 1 from stack that has size 0"));
   TEST("dup", "42 dup", 2, is_num(top, 42));
   TEST("rot", "1 2 3 rot", 3, is_num(top, 1));
   TEST("drop", "1 2 3 drop", 2, is_num(top, 2));
@@ -221,7 +224,14 @@ void run_stdlib_tests(KCtx *ctx) {
        is_num_arr(top, 4, (double[]){1, 2, 1, 2}));
   TEST("2nip 1", "1 2 3 4 5 2nip 3 array", 1,
        is_num_arr(top, 3, (double[]){1, 4, 5}));
+  TEST("tuck", "1 2 tuck", 3, is_num(top, 2) && is_num(bot, 2));
+  TEST("2tuck", "1 2 3 4 2tuck 6 array", 1, is_num_arr(top, 6, (double[]){3,4,1,2,3,4}));
   TEST("2nip 2", "1 2 3 4 2nip", 2, is_num(top, 4) && is_num(bot, 3));
+  TEST("2over", "1 2 3 4 2over 6 array", 1,
+       is_num_arr(top, 6, (double[]){1, 2, 3, 4, 1, 2}));
+  TEST("2rot", "1 2 3 4 5 6 2rot 6 array", 1,
+       is_num_arr(top, 6, (double[]){3, 4, 5, 6, 1, 2}));
+  TEST("2swap", "1 2 3 4 2swap 4 array", 1, is_num_arr(top, 4, (double[]){3,4,1,2}));
   TEST("if1", "1 2 < \"yes\" if", 1, is_str(top, "yes"));
   TEST("if2", "3 2 < \"yes\" if", 0, 1);
 
