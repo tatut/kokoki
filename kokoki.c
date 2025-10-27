@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include "tgc/tgc.h"
 #include "kokoki.h"
+#include "color.h"
 
 static tgc_t gc;
 
@@ -512,16 +513,20 @@ KVal read(char **at) {
 void kval_dump(KVal v) {
   switch (v.type) {
   case KT_NIL:
+    col(PURPLE);
     printf("nil");
     break;
   case KT_TRUE:
+    col(RED);
     printf("true");
     break;
   case KT_FALSE:
+    col(RED);
     printf("false");
     break;
   case KT_STRING:
-    printf("%.*s", (int) v.data.string.len, v.data.string.data);
+    col(GREEN);
+    printf("\"%.*s\"", (int) v.data.string.len, v.data.string.data);
     break;
   case KT_NAME:
     printf("%.*s", (int)v.data.string.len, v.data.string.data);
@@ -535,6 +540,7 @@ void kval_dump(KVal v) {
     printf(">");
     break;
   case KT_NUMBER:
+    col(YELLOW);
     if ((v.data.number - (long)v.data.number) == 0.0) {
       printf("%ld", (long)v.data.number);
     } else {
@@ -577,6 +583,7 @@ void kval_dump(KVal v) {
     printf("#<EOF>");
     break;
   }
+  reset();
 }
 
 void debug_stack(KCtx *ctx) {
@@ -1172,7 +1179,7 @@ void native_slice(KCtx *ctx) {
   }
   size_t start = (size_t)from.data.number;
   size_t end = (size_t) to.data.number;
-  if (start < 0 || start >= len || end < 0 || end > len) {
+  if (start < 0 || start > len || end < 0 || end > len) {
     err(error, "Copy range (%zu - %zu) out of bounds, valid range: 0 - %zu",
         start, end, len);
     goto fail;

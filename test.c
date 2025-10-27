@@ -269,6 +269,12 @@ void run_stdlib_tests(KCtx *ctx) {
        is_str(bot, "foo") && is_str(top, "bar"));
   TEST("split-at", "\"nope\" ' ' split-at", 2,
        is_str(bot, "nope") && is_str(top, ""));
+
+  TEST("lines", "\".test/lines.txt\" slurp lines", 1,
+       is_str_arr(top, 5,
+                  (const char*[]){"first", "second", "third", "",
+                                  "fourth after empty"}));
+
 }
 
 void run_tests(KCtx *ctx, void *user) {

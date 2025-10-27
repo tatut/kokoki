@@ -89,3 +89,15 @@
     true [tuck 0 swap slice
           2swap 1 + swap 3 move -rot slice nip] ]
   cond ;
+
+# split string to array of lines
+: lines (str -- arr)
+  [] copy swap
+  [ 10 split-at
+    [ # no more lines (last is empty)
+      [len 0 =] [drop apush false]
+
+      # has more lines
+      true [-rot apush swap true]
+      ] cond
+  ] while ;
