@@ -8,7 +8,7 @@
 static int fails_before;
 static int fails = 0;
 static int success = 0;
-KVal top;
+KVal top, bot;
 
 #define TEST(name, src, expected_stack_size, check_code)                       \
   {                                                                            \
@@ -21,8 +21,10 @@ KVal top;
               (expected_stack_size), ctx->stack->size);                        \
       fails++;                                                                 \
     }                                                                          \
-    if (ctx->stack->size)                                                      \
+    if (ctx->stack->size) {                                                    \
       top = ctx->stack->items[ctx->stack->size - 1];                           \
+      bot = ctx->stack->items[0];                                              \
+    }                                                                          \
     if (!(check_code)) {                                                       \
       fprintf(stderr,                                                          \
               "\n❌ [line: " STRINGIFY(__LINE__) "] FAIL: " name               \
@@ -45,9 +47,6 @@ KVal top;
     fflush(stdout);                                                            \
     ctx->stack->size = 0;                                                      \
   }
-
-
-
 
 
 
@@ -131,6 +130,9 @@ bool is_num(KVal v, double num) {
 void run_native_tests(KCtx *ctx) {
   TEST("comment", "# this is a comment\n 1 2 3 + # and so is this\n+", 1,
        top.data.number == 6);
+  TEST("pick1", "1 2 3 0 pick", 4, is_num(top, 3));
+  TEST("pick2", "1 2 3 2 pick", 4, is_num(top, 1));
+  TEST("pick err", "1 2 42 pick", 3, is_error(top, "Can't pick item 42 from stack that has size 2"));
   TEST("dup", "42 dup", 2, is_num(top, 42));
   TEST("rot", "1 2 3 rot", 3, is_num(top, 1));
   TEST("drop", "1 2 3 drop", 2, is_num(top, 2));
@@ -210,6 +212,11 @@ void run_native_tests(KCtx *ctx) {
 void run_stdlib_tests(KCtx *ctx) {
   kokoki_eval(ctx, "\"stdlib.ki\" use");
 
+  TEST("nip", "1 2 nip", 1, is_num(top, 2));
+  TEST("over", "1 2 over", 3, is_num(top, 1));
+  TEST("?dup true", "42 ?dup", 2, is_num(top, 42) && is_num(bot, 42));
+  TEST("?dup false", "1 2 > ?dup", 1, top.type == KT_FALSE);
+  TEST("?dup il", "nil ?dup", 1, top.type == KT_NIL);
   TEST("if1", "1 2 < \"yes\" if", 1, is_str(top, "yes"));
   TEST("if2", "3 2 < \"yes\" if", 0, 1);
 

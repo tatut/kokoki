@@ -1,5 +1,24 @@
 # Kokoki standard library
 
+: dup2 (a b -- a1 a2 b1 b2)
+  swap dup rot dup rot swap dump  ;
+
+# drop next to top element
+: nip (a b -- b)
+  swap drop ;
+
+# copy next to top element
+: over (a b -- a b a)
+  swap dup rot swap ;
+
+: -rot (a b c -- c a b)
+  rot rot ;
+
+: ?dup (a -- a a) # if a is truthy
+  [] copy over apush over apush cond ;
+
+# "foo,bar" 0 [dup . "idx".] [dup 1 + swap rot len rot dump false] while drop .
+
 # Convert string containing digits to an integer number
 : str->int (str -- num)
   [48 -] each
@@ -21,3 +40,17 @@
   swap rot [] copy swap apush swap apush
   true apush swap apush
   cond ;
+
+# do-idx, run code for each index in array
+: do-idx (arr code -- arr)
+swap len
+ 0 [ "in idx " . dump nl dup 1 + swap rot dump exec ]
+ rot dump times
+ dump ;
+
+# ch-idx  first index of char in string
+#: ch-idx (str ch -- str idx)
+
+
+# split string at char
+#: split (str ch -- str1 str2)

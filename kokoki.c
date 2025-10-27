@@ -116,6 +116,7 @@ uint32_t kval_hash(KVal v) { // MurmurOAAT_32
     snprintf((val).data.string.data, _errlen + 1, fmt VA_ARGS(__VA_ARGS__));   \
   }
 
+bool falsy(KVal v) { return (v.type == KT_FALSE || v.type == KT_NIL); }
 
 bool kval_eq(KVal a, KVal b) {
   if (a.type != b.type)
@@ -731,7 +732,7 @@ void native_cond(KCtx *ctx) {
       //printf(" ==> ");
       //kval_dump(result);
       //printf("\n");
-      if (result.type == KT_TRUE) {
+      if (!falsy(result)) {
         // we are done, run action and return
         if(_then.type == KT_ARRAY) _then.type = KT_BLOCK;
         exec(ctx, _then);
@@ -963,8 +964,6 @@ void native_equals(KCtx *ctx) {
   KVal a = arr_pop(ctx->stack);
   arr_push(ctx->stack, (KVal){.type = kval_eq(a, b) ? KT_TRUE : KT_FALSE});
 }
-
-bool falsy(KVal v) { return (v.type == KT_FALSE || v.type == KT_NIL); }
 
 void native_not(KCtx *ctx) {
   if(falsy(arr_pop(ctx->stack))) {
