@@ -741,6 +741,19 @@ void native_cond(KCtx *ctx) {
   }
 }
 
+void native_pick(KCtx *ctx) {
+  IN(num, KT_NUMBER);
+  KVal error;
+  size_t sz = ctx->stack->size;
+  size_t idx = (size_t) num.data.number;
+  if (sz <= idx) {
+    err(error, "Can't pick item %zu from stack that has size %zu", idx, sz);
+    OUT(error);
+  } else {
+    OUT(ctx->stack->items[sz - 1 - idx]);
+  }
+}
+
 void native_dup(KCtx *ctx) {
   KVal v = arr_pop(ctx->stack);
   arr_push(ctx->stack, v);
@@ -1243,6 +1256,7 @@ void kokoki_init(void (*callback)(KCtx*,void*), void *user) {
 #undef DO
   native(ctx, "=", native_equals);
   native(ctx, "%", native_mod);
+  native(ctx, "pick", native_pick);
   native(ctx, "dup", native_dup);
   native(ctx, "rot", native_rot);
   native(ctx, "swap", native_swap);
