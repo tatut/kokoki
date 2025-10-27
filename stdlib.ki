@@ -85,7 +85,7 @@
 # split string at char
 : split-at (str ch -- str1 str2)
   swap len swap rot ch-idx
-  [ [dup -1 = dump ] [drop nip ""]
+  [ [dup -1 = ] [drop nip ""]
     true [tuck 0 swap slice
           2swap 1 + swap 3 move -rot slice nip] ]
   cond ;

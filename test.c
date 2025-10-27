@@ -109,6 +109,25 @@ size_mismatch:
   return false;
 }
 
+bool is_str_arr(KVal v, size_t len, const char **strs) {
+  if (v.type != KT_ARRAY)
+    goto not_array;
+  if (v.data.array->size != len)
+    goto size_mismatch;
+  for (size_t i = 0; i < len; i++) {
+    if (!is_str(v.data.array->items[i], strs[i]))
+      return false;
+  }
+  return true;
+not_array:
+  printf(" expected array of strings\n");
+  return false;
+size_mismatch:
+  printf(" expected array of length %zu, got length %zu\n", len,
+         v.data.array->size);
+  return false;
+}
+
 bool is_num(KVal v, double num) {
   if (v.type != KT_NUMBER) {
     printf(" expected number\n");
@@ -246,6 +265,10 @@ void run_stdlib_tests(KCtx *ctx) {
 
   TEST("str->int", "\"420\" str->int", 1, is_num(top, 420));
 
+  TEST("split-at", "\"foo,bar\" ',' split-at", 2,
+       is_str(bot, "foo") && is_str(top, "bar"));
+  TEST("split-at", "\"nope\" ' ' split-at", 2,
+       is_str(bot, "nope") && is_str(top, ""));
 }
 
 void run_tests(KCtx *ctx, void *user) {
