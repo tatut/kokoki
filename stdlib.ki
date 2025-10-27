@@ -17,6 +17,12 @@
 : ?dup (a -- a a) # if a is truthy
   [] copy over apush over apush cond ;
 
+: 2dup (a b -- a b a b)
+  over over ;
+
+: 2nip (a b c d -- c d)
+  rot drop rot drop ;
+
 # "foo,bar" 0 [dup . "idx".] [dup 1 + swap rot len rot dump false] while drop .
 
 # Convert string containing digits to an integer number

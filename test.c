@@ -216,7 +216,12 @@ void run_stdlib_tests(KCtx *ctx) {
   TEST("over", "1 2 over", 3, is_num(top, 1));
   TEST("?dup true", "42 ?dup", 2, is_num(top, 42) && is_num(bot, 42));
   TEST("?dup false", "1 2 > ?dup", 1, top.type == KT_FALSE);
-  TEST("?dup il", "nil ?dup", 1, top.type == KT_NIL);
+  TEST("?dup nil", "nil ?dup", 1, top.type == KT_NIL);
+  TEST("2dup", "1 2 2dup 4 array", 1,
+       is_num_arr(top, 4, (double[]){1, 2, 1, 2}));
+  TEST("2nip 1", "1 2 3 4 5 2nip 3 array", 1,
+       is_num_arr(top, 3, (double[]){1, 4, 5}));
+  TEST("2nip 2", "1 2 3 4 2nip", 2, is_num(top, 4) && is_num(bot, 3));
   TEST("if1", "1 2 < \"yes\" if", 1, is_str(top, "yes"));
   TEST("if2", "3 2 < \"yes\" if", 0, 1);
 

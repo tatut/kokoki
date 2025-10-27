@@ -442,13 +442,19 @@ KVal read(char **at) {
     return read_str(at);
   case '0': case '1': case '2': case '3': case '4': case '5':
   case '6': case '7': case '8': case '9':
-    return read_num(at);
-  case '-':
-    // read the number or name depending on the next char
-    if (is_digit(*(*at + 1)))
-      return read_num(at);
-    else
+    if (is_alpha(*(*at + 1))) {
+      // to support names like "2dup" that start with number
       return read_name(at);
+    } else {
+      return read_num(at);
+    }
+  case '-':
+    if (is_digit(*(*at + 1))) {
+      return read_num(at);
+    } else {
+      return read_name(at);
+    }
+
   case '\'': {
     if (*(*at + 2) != '\'')
       goto fail;
