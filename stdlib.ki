@@ -38,6 +38,9 @@
 : 2swap (a b c d -- c d a b)
   [3 move] 2 times ;
 
+: 2drop (a b --)
+  drop drop ;
+
 # "foo,bar" 0 [dup . "idx".] [dup 1 + swap rot len rot dump false] while drop .
 
 # Convert string containing digits to an integer number
@@ -62,16 +65,27 @@
   true apush swap apush
   cond ;
 
-# do-idx, run code for each index in array
-: do-idx (arr code -- arr)
-swap len
- 0 [ "in idx " . dump nl dup 1 + swap rot dump exec ]
- rot dump times
- dump ;
-
 # ch-idx  first index of char in string
-#: ch-idx (str ch -- str idx)
+: ch-idx (str ch -- str idx)
+  swap len (str ch len)
+  0 swap
+  [ (ch str idx len -- ch str idx len continue?)
+   [ [2dup =] [2drop -1 0 false ] # at end, not found
+
+     # character found here
+     [2 pick 2 pick aget nip 4 pick = ] false
+
+     # continue to next index
+     true [ swap 1 + swap  true ] ] cond ]
+  while
+  drop rot drop
+  ;
 
 
 # split string at char
-#: split (str ch -- str1 str2)
+: split-at (str ch -- str1 str2)
+  swap len swap rot ch-idx
+  [ [dup -1 = dump ] [drop nip ""]
+    true [tuck 0 swap slice
+          2swap 1 + swap 3 move -rot slice nip] ]
+  cond ;

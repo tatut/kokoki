@@ -346,7 +346,7 @@ KVal read_num(char **at) {
     }
     val += (frac / div);
   }
-  return (KVal){.type = KT_NUMBER, .data.number = val};
+  return (KVal){.type = KT_NUMBER, .data.number = mult*val};
 }
 
 KVal read(char **at);
@@ -707,6 +707,11 @@ DO_NUM_OPS
 
 
 #define IN_ANY(name) KVal name = arr_pop(ctx->stack)
+#define IN_EXEC(name)                                                          \
+  KVal name = arr_pop(ctx->stack);                                             \
+  if (name.type == KT_ARRAY)                                                   \
+  name.type = KT_BLOCK
+
 #define OUT(v) arr_push(ctx->stack, (v))
 
 
@@ -915,6 +920,24 @@ void native_fold(KCtx *ctx) {
   } else {
     err(error, "Expected array or string to fold");
     arr_push(ctx->stack, error);
+  }
+}
+
+/* Run code while top of stack is truthy at the end.
+ * Always runs at least 1 iteration.
+ *
+ * 0 [ dup . nl 1 + dup swap 3 < ] while
+ * prints:
+ * 0
+ * 1
+ * 2
+ */
+void native_while(KCtx *ctx) {
+  IN_EXEC(loop);
+  for (;;) {
+    exec(ctx, loop);
+    IN_ANY(condition);
+    if(falsy(condition)) return;
   }
 }
 
@@ -1130,6 +1153,56 @@ void native_adel(KCtx *ctx) {
   }
 }
 
+/* (arr-in from to -- arr-in arr-out)
+ * copy a slice of an array or string
+ */
+void native_slice(KCtx *ctx) {
+  IN(to, KT_NUMBER);
+  IN(from, KT_NUMBER);
+  IN_ANY(arr);
+  size_t len;
+  KVal copy, error;
+  if (arr.type == KT_STRING) {
+    len = arr.data.string.len;
+  } else if (arr.type == KT_ARRAY) {
+    len = arr.data.array->size;
+  } else {
+    err(error, "Expected array or string to copy");
+    goto fail;
+  }
+  size_t start = (size_t)from.data.number;
+  size_t end = (size_t) to.data.number;
+  if (start < 0 || start >= len || end < 0 || end > len) {
+    err(error, "Copy range (%zu - %zu) out of bounds, valid range: 0 - %zu",
+        start, end, len);
+    goto fail;
+  }
+  if (start > end) {
+    err(error, "Copy start can't be after end (%zu > %zu)", start, end);
+    goto fail;
+  }
+
+  if (arr.type == KT_STRING) {
+    // copy string
+    copy = (KVal){.type = KT_STRING,
+                  .data.string = {.len = end - start,
+                                  .data = tgc_alloc(&gc, end-start)}};
+    memcpy(copy.data.string.data, &arr.data.string.data[start], end-start);
+  } else {
+    // copy array
+    copy =
+        (KVal){.type = KT_ARRAY, .data.array = tgc_alloc(&gc, sizeof(KArray))};
+    for(size_t i=start;i<end;i++) {
+      arr_push(copy.data.array, arr.data.array->items[i]);
+    }
+  }
+
+  OUT(arr);
+  OUT(copy);
+  return;
+fail:
+  OUT(error);
+}
 bool check_ref_name(KVal ref, KVal *errv) {
  if (ref.type != KT_REF_NAME) {
    err(*errv, "Expected variable reference.");
@@ -1270,6 +1343,13 @@ void native_dump(KCtx *ctx) {
   printf("\n");
 }
 
+void native_read(KCtx *ctx) {
+  char buf[512];
+  char *at = buf;
+  fgets(buf, 512, stdin);
+  OUT(read(&at));
+}
+
 /*
  * while top of the stack is true
  * @foo 0 !
@@ -1307,6 +1387,7 @@ void kokoki_init(void (*callback)(KCtx*,void*), void *user) {
   native(ctx, "aget", native_aget);
   native(ctx, "aset", native_aset);
   native(ctx, "adel", native_adel);
+  native(ctx, "slice", native_slice);
   native(ctx, "times", native_times);
   native(ctx, "?", native_deref);
   native(ctx, "!", native_reset);
@@ -1317,6 +1398,8 @@ void kokoki_init(void (*callback)(KCtx*,void*), void *user) {
   native(ctx, "reverse", native_reverse);
   native(ctx, "copy", native_copy);
   native(ctx, "dump", native_dump);
+  native(ctx, "while", native_while);
+  native(ctx, "read", native_read);
   callback(ctx,user);
   tgc_stop(&gc);
 }
