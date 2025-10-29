@@ -13,6 +13,9 @@
 
 static tgc_t gc;
 
+#define RES2H_ALLOC(size) tgc_alloc(&gc, (size))
+#include "stdlib.h"
+
 /*
   syntax:
   42             push number to stack
@@ -1457,6 +1460,11 @@ void kokoki_init(void (*callback)(KCtx*,void*), void *user) {
   native(ctx, "while", native_while);
   native(ctx, "read", native_read);
   native(ctx, "sort", native_sort);
+  size_t sz;
+  uint8_t *stdlib;
+  get_resource("stdlib.ki", &sz, &stdlib);
+  kokoki_eval(ctx, (const char*)stdlib);
+  tgc_free(&gc, stdlib);
   callback(ctx,user);
   tgc_stop(&gc);
 }

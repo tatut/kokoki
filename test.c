@@ -240,7 +240,6 @@ void run_native_tests(KCtx *ctx) {
 }
 
 void run_stdlib_tests(KCtx *ctx) {
-  kokoki_eval(ctx, "\"stdlib.ki\" use");
 
   TEST("nip", "1 2 nip", 1, is_num(top, 2));
   TEST("over", "1 2 over", 3, is_num(top, 1));
