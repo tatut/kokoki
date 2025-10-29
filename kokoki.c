@@ -526,7 +526,7 @@ void kval_dump(KVal v) {
     break;
   case KT_STRING:
     col(GREEN);
-    printf("\"%.*s\"", (int) v.data.string.len, v.data.string.data);
+    printf("%.*s", (int) v.data.string.len, v.data.string.data);
     break;
   case KT_NAME:
     printf("%.*s", (int)v.data.string.len, v.data.string.data);
@@ -904,7 +904,7 @@ void native_each(KCtx *ctx) {
   arr_push(ctx->stack, error);
 }
 
-void native_fold(KCtx *ctx) {
+void fold(KCtx *ctx, bool init) {
   KVal code = arr_pop(ctx->stack);
   if(code.type == KT_ARRAY) code.type = KT_BLOCK;
   KVal arr = arr_pop(ctx->stack);
@@ -913,7 +913,7 @@ void native_fold(KCtx *ctx) {
     for (size_t i = 0; i < arr.data.array->size; i++) {
       KVal item = arr.data.array->items[i];
       arr_push(ctx->stack, item);
-      if(i)
+      if(i || init)
         exec(ctx, code);
     }
   } else if (arr.type == KT_STRING) {
@@ -921,7 +921,7 @@ void native_fold(KCtx *ctx) {
       KVal item =
           (KVal){.type = KT_NUMBER, .data.number = arr.data.string.data[i]};
       arr_push(ctx->stack, item);
-      if(i)
+      if(i || init)
         exec(ctx, code);
     }
   } else {
@@ -929,6 +929,9 @@ void native_fold(KCtx *ctx) {
     arr_push(ctx->stack, error);
   }
 }
+
+void native_fold(KCtx *ctx) { fold(ctx, false); }
+void native_foldi(KCtx *ctx) { fold(ctx, true); }
 
 /* Run code while top of stack is truthy at the end.
  * Always runs at least 1 iteration.
@@ -989,6 +992,51 @@ void native_cat(KCtx *ctx) {
     arr_push(ctx->stack, error);
   }
 
+}
+
+int kval_compare(const void *Aptr, const void *Bptr) {
+  KVal a = *((KVal *)Aptr);
+  KVal b = *((KVal *)Bptr);
+  if (a.type != b.type) {
+    return a.type - b.type;
+  }
+  switch (a.type) {
+  case KT_NUMBER:
+    return a.data.number < b.data.number
+               ? -1
+               : (a.data.number > b.data.number ? 1 : 0);
+  case KT_STRING: {
+    size_t al = a.data.string.len, bl = b.data.string.len;
+    int ord = memcmp(a.data.string.data, b.data.string.data, al < bl ? al : bl);
+    if (ord == 0) {
+      return al - bl;
+    } else {
+      return ord;
+    }
+  }
+  case KT_ARRAY: {
+    size_t al = a.data.array->size, bl = b.data.array->size;
+    if (al != bl) {
+      return al - bl;
+    } else {
+      for (size_t i = 0; i < al; i++) {
+        int ord =
+            kval_compare(&a.data.array->items[i], &b.data.array->items[i]);
+        if (ord != 0)
+          return ord;
+      }
+      return 0;
+    }
+  }
+  default: return 0;
+  }
+}
+
+void native_sort(KCtx *ctx) {
+  IN(arr, KT_ARRAY);
+  qsort(arr.data.array->items, arr.data.array->size, sizeof(KVal),
+        kval_compare);
+  OUT(arr);
 }
 
 void native_filter(KCtx *ctx) {
@@ -1385,6 +1433,7 @@ void kokoki_init(void (*callback)(KCtx*,void*), void *user) {
   native(ctx, "slurp", native_slurp);
   native(ctx, "each", native_each);
   native(ctx, "fold", native_fold);
+  native(ctx, "foldi", native_foldi);
   native(ctx, "cat", native_cat);
   native(ctx, "filter", native_filter);
   native(ctx, "not", native_not);
@@ -1407,6 +1456,7 @@ void kokoki_init(void (*callback)(KCtx*,void*), void *user) {
   native(ctx, "dump", native_dump);
   native(ctx, "while", native_while);
   native(ctx, "read", native_read);
+  native(ctx, "sort", native_sort);
   callback(ctx,user);
   tgc_stop(&gc);
 }

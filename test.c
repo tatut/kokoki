@@ -229,6 +229,14 @@ void run_native_tests(KCtx *ctx) {
   TEST("rev", "[1 2 3] reverse", 1, is_num_arr(top, 3, (double[]){3, 2, 1}));
   TEST("rev str", "\"foobar\" reverse", 1, is_str(top, "raboof"));
 
+  TEST("sort", "[666 12 42 0] sort", 1,
+       is_num_arr(top, 4, (double[]){0, 12, 42, 666}));
+  TEST("sort strings1", "[\"foo\" \"Afoobar\"] sort", 1,
+       is_str_arr(top, 2, (const char *[]){"Afoobar", "foo"}));
+  TEST("sort strings2", "[\"foobar\" \"foo\"] sort", 1,
+       is_str_arr(top, 2, (const char *[]){"foo", "foobar"}));
+
+
 }
 
 void run_stdlib_tests(KCtx *ctx) {

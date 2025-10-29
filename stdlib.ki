@@ -29,7 +29,7 @@
 : 2tuck (a b c d -- c d a b c d)
   2dup [5 move] 4 times ;
 
-: 2over (a b c d -- a b c d a b)
+: 2over (a b c d -- a b cd a b)
   [3 pick] 2 times ;
 
 : 2rot (a b c d e f -- c d e f a b)
@@ -40,8 +40,6 @@
 
 : 2drop (a b --)
   drop drop ;
-
-# "foo,bar" 0 [dup . "idx".] [dup 1 + swap rot len rot dump false] while drop .
 
 # Convert string containing digits to an integer number
 : str->int (str -- num)
@@ -101,3 +99,43 @@
       true [-rot apush swap true]
       ] cond
   ] while ;
+
+: first (arr -- arr item)
+  [ [len 0 = ] nil
+    true [0 aget] ] cond ;
+
+: last (arr -- arr item)
+  [ [ len 0 = ] nil
+    true [len 1 - aget] ] cond ;
+
+: butfirst (arr0 -- arr1)
+  len 1 swap slice nip ;
+
+: butlast (arr0 -- arr1)
+  [ [ len 0 > ] [ len 1 - 0 swap slice nip ] ] cond ;
+
+: triml (str0 -- str1)
+  [ first 32 = [butfirst true] false if-else ] while ;
+
+: trimr (str0 -- str1)
+  [ last 32 = [butlast true] false if-else ] while ;
+
+: trim (str0 -- str1)
+  triml trimr ;
+
+: abs (n0 -- n1)
+  dup 0 < [-1 *] if ;
+
+#: interlave (arr0 arr1 -- arr2)
+#  [] copy
+#  [ rot len 0 > [ first  ] if # take from left list
+
+#
+# [ point x y ] record
+# => defines
+# getters: x? y?
+# setters: x! y!
+# constructors:
+# new-point ( x y -- point )
+# empty-point ( -- point)
+# point? (check if item is a point)
