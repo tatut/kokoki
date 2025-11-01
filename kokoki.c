@@ -506,9 +506,9 @@ KVal read(char **at) {
   }
  fail: {
   int err_len = snprintf(NULL, 0, "Parse error at: '%c'     ", **at);
-  *at = *at + 1;
   char *err = tgc_alloc(&gc, err_len);
   snprintf(err, err_len, "Parse error at: '%c'", **at);
+  *at = *at + 1;
   return (KVal){.type = KT_ERROR, .data.string = {.len = err_len - 1, err}};
   }
 }
