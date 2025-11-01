@@ -234,6 +234,7 @@ KCtx *kctx_new() {
   KCtx *ctx = tgc_calloc(&gc, 1, sizeof(KCtx));
   ctx->names = tgc_calloc(&gc, 1, sizeof(KHashMap));
   ctx->stack = tgc_calloc(&gc, 1, sizeof(KArray));
+  ctx->bytecode = tgc_calloc(&gc, 1, sizeof(KByteCode));
   return ctx;
 }
 
@@ -356,30 +357,11 @@ KVal read_num(char **at) {
 KVal read(char **at);
 
 void arr_push(KArray *arr, KVal v) {
-  if (arr->size == arr->capacity) {
-    size_t new_capacity = arr->capacity == 0 ? 8 : arr->capacity * 1.62;
-    arr->items = tgc_realloc(&gc, arr->items, new_capacity * sizeof(KVal));
-    arr->capacity = new_capacity;
-    if (!arr->items) {
-      fprintf(stderr, "Out of memory");
-      exit(1);
-    }
-  }
-  //printf("arr->size before push: %zu\n", arr->size);
-  arr->items[arr->size++] = v;
-  //printf("arr->size after push: %zu\n", arr->size);
+  ARR_PUSH(arr, v);
 }
 
-void arr_remove_first(KArray *arr) {
-  if (arr->size == 1) {
-    arr->size = 0;
-  } else {
-    for (int i = 0; i < arr->size - 1; i++) {
-      arr->items[i] = arr->items[i+1];
-    }
-    arr->size -= 1;
-  }
-}
+void arr_remove_first(KArray *arr) { ARR_REMOVE_FIRST(arr); }
+
 KVal arr_remove_nth(KArray *arr, size_t idx) {
   KVal item = arr->items[idx];
   for (size_t i = idx; i < arr->size - 1; i++) {
@@ -585,6 +567,10 @@ void kval_dump(KVal v) {
   case KT_EOF:
     printf("#<EOF>");
     break;
+
+  case KT_CODE_ADDR:
+    printf("#<compiled code @ %d>", v.data.address);
+    break;
   }
   reset();
 }
@@ -665,6 +651,122 @@ KVal *kval_new(KVal v) {
   memcpy(kv, &v, sizeof(KVal));
   return kv;
 }
+
+
+void(KCtx *, void *) get_native_fn(uint16_t index);
+uint16_t get_native_fn_idx(const char *name);
+
+/* Execute bytecode */
+void execute(KCtx *ctx) {
+#define NEXT() ctx->bytecode->items[ctx->pc++]
+  union { int16_t n; uint8_t b[2]; } i16;
+  union { uint16_t n; uint8_t b[2]; } u16;
+  union { double n; uint8_t b[8]; } num;
+  union { uint32_t n; uint8_t b[4]; } u32;
+
+  for(;;) {
+    uint8_t op;
+    op = NEXT();
+    KVal push;
+    switch (op) {
+    case OP_END:
+      return;
+    case OP_PUSH_NIL:
+      push = (KVal){.type = KT_NIL};
+      goto push_it;
+    case OP_PUSH_TRUE:
+      push = (KVal){.type = KT_TRUE};
+      goto push_it;
+    case OP_PUSH_FALSE:
+      push = (KVal){.type = KT_FALSE};
+      goto push_it;
+    case OP_PUSH_INT8:
+      push = (KVal){.type = KT_NUMBER,
+                    .data.number = (int8_t)NEXT()};
+      goto push_it;
+    case OP_PUSH_INT16:
+      i16.b[0] = NEXT();
+      i16.b[1] = NEXT();
+      push = (KVal){.type = KT_NUMBER, .data.number = i16.n};
+      goto push_it;
+    case OP_PUSH_NUMBER:
+      memcpy(num.b, &ctx->bytecode->items[ctx->pc], 8);
+      ctx->pc += 8;
+      push = (KVal){.type = KT_NUMBER, .data.number = num.n};
+      goto push_it;
+    case OP_PUSH_STRING:
+    case OP_PUSH_NAME:
+      push = (KVal){.type = (op == OP_PUSH_NAME ? KT_NAME : KT_STRING),
+                    .data.string.len = NEXT()};
+      push.data.string.data = tgc_alloc(&gc, push.data.string.len);
+      memcpy(push.data.string.data, &ctx->bytecode->items[ctx->pc], push.data.string.len);
+      ctx->pc += push.data.string.len;
+      goto push_it;
+    case OP_PUSH_STRING_LONG:
+      memcpy(u32.b, &ctx->bytecode->items[ctx->pc], 4);
+      ctx->pc += 4;
+      push =
+          (KVal){.type = KT_STRING,
+                 .data.string = {.len = u32.n, .data = tgc_alloc(&gc, u32.n)}};
+      memcpy(push.data.string.data, &ctx->bytecode->items[ctx->pc], u32.n);
+      ctx->pc += u32.n;
+      goto push_it;
+    case OP_PUSH_ARRAY:
+      push = (KVal){.type = KT_ARRAY, .data.array = tgc_calloc(&gc, 1, sizeof(KArray))};
+      goto push_it;
+    case OP_APUSH: {
+      KVal item = arr_pop(ctx->stack);
+      KVal arr = arr_peek(ctx->stack);
+      arr_push(arr.data.array, item);
+      break;
+    }
+#define BINARY_OP(op)                                                          \
+  {                                                                            \
+    KVal b = arr_pop(ctx->stack);                                              \
+    KVal a = arr_pop(ctx->stack);                                              \
+    push = (KVal){.type = KT_NUMBER,                                           \
+                  .data.number = a.data.number op b.data.number};              \
+    goto push_it;                                                              \
+  }
+    case OP_PLUS:
+      BINARY_OP(+);
+    case OP_MINUS:
+      BINARY_OP(-);
+    case OP_MUL:
+      BINARY_OP(*);
+    case OP_DIV:
+      BINARY_OP(/);
+    case OP_MOD: {
+      KVal b = arr_pop(ctx->stack);
+      KVal a = arr_pop(ctx->stack);
+      push = (KVal){.type = KT_NUMBER, .data.number = (double)((long)a.data.number % (long)b.data.number)};
+      goto push_it;
+    }
+
+    case OP_INVOKE:
+      memcpy(u16.b, &ctx->bytecode->items[ctx->pc], 2);
+      ctx->pc += 2;
+      void(*impl(KCtx *)) = get_native_fn(u16.n);
+      impl(ctx);
+      break;
+    default:
+      fprintf(stderr, "Unknown bytecode op: %d\n", op);
+      exit(1);
+    }
+    continue;
+  push_it:
+    ARR_PUSH(ctx->stack, push);
+  }
+#undef NEXT
+}
+
+void emit_bytes(KCtx *ctx, size_t len, uint8_t *bytes) {
+  for (size_t i = 0; i < len; i++) {
+    ARR_PUSH(ctx->bytecode, bytes[i]);
+  }
+}
+
+void emit(KCtx *ctx, KOp op) { emit_bytes(ctx, 1, (uint8_t[]){op}); }
 
 void native(KCtx * ctx, const char *name, void (*native)(KCtx *)) {
   size_t len = strlen(name);

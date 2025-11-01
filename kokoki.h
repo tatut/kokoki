@@ -1,8 +1,76 @@
 #ifndef kokoki_h
 #define kokoki_h
 
+#include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+
+/* Bytecode opcodes */
+typedef enum KOp {
+  OP_END = 0, // END execution, compiler puts this as last op always
+  /* Push operations.
+   * Put constants or fresh data structures on top of the stack.
+   */
+  OP_PUSH_NIL,   // the nil value
+  OP_PUSH_TRUE,  // the true value
+  OP_PUSH_FALSE, // the false value
+  OP_PUSH_INT8,  // integer between -128 and 127, next byte is the value
+  OP_PUSH_INT16, //  integer between -32768 and 32767, next 2 bytes is the value
+  OP_PUSH_NUMBER, // a number, next 8 bytes is the value
+  OP_PUSH_STRING, // a short string, next byte is len and the bytes after that
+  OP_PUSH_STRING_LONG, // long string, next 4 bytes is len, and the bytes after
+                       // that
+  OP_PUSH_NAME,        // a name, like short string
+  OP_PUSH_ARRAY,       // a fresh empty array
+  OP_PUSH_HASHMAP,     // a fresh empty hashtable
+
+  /* Arithmetic operations.
+   * Operates on 2 topmost values on the stack
+   */
+  OP_PLUS,  // +
+  OP_MINUS, // -
+  OP_MUL,   // *
+  OP_DIV,   // /
+  OP_MOD,   // %
+  OP_SHL,   // <<
+  OP_SHR,   // >>
+
+  OP_EQ,  // = equality
+  OP_AND, // and two truth values
+  OP_OR,  // or two truth values
+
+  /* Basic stack manipulation words.
+   */
+  OP_DUP,   // duplicate top of stack
+  OP_DROP,  // drop top of stack
+  OP_NIP,   // drop 2nd item
+  OP_TUCK,  // duplicate top item and place it under 2nd item
+  OP_MOVEN, // move Nth item to top
+  OP_MOVE1, // move 2nd item to top (same as swap)
+  OP_MOVE2, // move 3rd item to top
+  OP_MOVE3, // move 4th item to top
+  OP_MOVE4, // move 5th item to top
+  OP_MOVE5, // move 6th item to top
+  OP_PICKN, // duplicate Nth item to top
+  OP_PICK1, // duplicate 2nd item to top (same as over)
+  OP_PICK2, // duplicate 3rd item to top
+  OP_PICK3, // duplicate 4th item to top
+  OP_PICK4, // duplicate 5th item to top
+  OP_PICK5, // duplicate 6th item to top
+
+  /* Control operations.
+   */
+  OP_JMP,       // unconditional jump, next 3 bytes is the address
+  OP_JMP_TRUE,  // conditional jump if top of stack is truthy
+  OP_JMP_FALSE, // conditional jump if top of stack is falsy
+  OP_CALL,      // call a word, pushes current pos into return stack
+  OP_RETURN,    // return to position in top of return stack
+  OP_INVOKE,     // invoke a native C implemented word (2 byte index)
+
+  /* Operations needed to arrays Inline data structure operations
+   */
+  OP_APUSH, // (arr item -- arr) push top of stack to array
+} KOp;
 
 typedef enum KType {
   KT_NIL,        // null value
@@ -20,7 +88,38 @@ typedef enum KType {
   KT_DEFINITION, // ':' definition (uses array where 1st item is the name)
   KT_BLOCK,      // type of array that is executed in place
   KT_EOF,        // end of input
+  KT_CODE_ADDR   // byte code address (for compiled word definition)
 } KType;
+
+// push to dynamic array, growing it as needed
+#define ARR_PUSH(arr, v)                                                       \
+  do {                                                                         \
+    if ((arr)->size == (arr)->capacity) {                                      \
+      size_t new_capacity = (arr)->capacity == 0 ? 8 : (arr)->capacity * 1.62; \
+      (arr)->items = tgc_realloc(&gc, (arr)->items,                            \
+                                 new_capacity * sizeof((arr)->items[0]));      \
+      (arr)->capacity = new_capacity;                                          \
+      if (!(arr)->items) {                                                     \
+        fprintf(stderr, "Out of memory at: %s line %d\n", __FILE__, __LINE__); \
+        exit(1);                                                               \
+      }                                                                        \
+    }                                                                          \
+    (arr)->items[(arr)->size++] = v;                                           \
+  } while (false)
+
+#define ARR_REMOVE_FIRST(arr)                                                  \
+  do {                                                                         \
+    if ((arr)->size == 1) {                                                    \
+      (arr)->size = 0;                                                         \
+    } else {                                                                   \
+      for (size_t _i = 0; _i < (arr)->size - 1; _i++) {                        \
+        (arr)->items[_i] = (arr)->items[_i + 1];                               \
+      }                                                                        \
+      (arr)->size -= 1;                                                        \
+    }                                                                          \
+  } while (false)
+
+
 
 typedef struct KVal KVal;
 
@@ -45,6 +144,7 @@ typedef struct KVal {
     KArray *array;
     void (*native)(KCtx*);
     KRef *ref;
+    uint32_t address;
   } data;
 } KVal;
 
@@ -64,9 +164,30 @@ typedef struct KHashMap {
   KHashMapEntry *items;
 } KHashMap;
 
+typedef struct KByteCode {
+  size_t capacity;
+  size_t size;
+  uint8_t *items;
+} KByteCode;
+
+typedef struct KAddrStack {
+  size_t capacity;
+  size_t size;
+  uint32_t *items;
+} KAddrStack;
+
 typedef struct KCtx {
   KArray *stack;
   KHashMap *names;
+
+  // bytecode
+  KByteCode *bytecode;
+
+  // current program counter
+  uint32_t pc;
+
+  // return address from any calls
+  KAddrStack *return_addr;
 } KCtx;
 
 /**
@@ -75,7 +196,7 @@ typedef struct KCtx {
 void kokoki_init(void (*callback)(KCtx*,void*), void* user);
 
 /**
- * Evaluate the given source code.
+ * Compile and run the given source code.
  * Returns true on success, false otherwise.
  */
 bool kokoki_eval(KCtx *ctx, const char *source);
@@ -89,5 +210,9 @@ void kval_dump(KVal v);
 
 void arr_push(KArray *arr, KVal val);
 KVal arr_pop(KArray *arr);
+
+void emit(KCtx *ctx, KOp op);
+void emit_bytes(KCtx *ctx, size_t len, uint8_t *bytes);
+void execute(KCtx *ctx);
 
 #endif

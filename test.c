@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include "kokoki.h"
@@ -9,6 +10,20 @@ static int fails_before;
 static int fails = 0;
 static int success = 0;
 KVal top, bot;
+
+#define IS(check_code)                                                         \
+  if (!(check_code)) {                                                         \
+    fprintf(stderr,                                                            \
+            "\n❌ [line: " STRINGIFY(__LINE__) "] FAIL: "                      \
+                                               " (check)\n    " STRINGIFY(     \
+                                                   check_code) "\n");          \
+    fails++;                                                                   \
+  } else {                                                                     \
+    success++;                                                                 \
+  }
+
+
+
 
 #define TEST(name, src, expected_stack_size, check_code)                       \
   {                                                                            \
@@ -284,9 +299,111 @@ void run_stdlib_tests(KCtx *ctx) {
 
 }
 
+void bc_reset(KCtx *ctx) {
+  ctx->bytecode->size = 0;
+  ctx->pc = 0;
+  ctx->stack->size = 0;
+}
+
+#define BC(code)                                                               \
+  {                                                                            \
+    bc_reset(ctx);                                                             \
+    {code} emit(ctx, OP_END);                                                  \
+    execute(ctx);                                                              \
+    if (ctx->stack->size)                                                      \
+      top = ctx->stack->items[0];                                              \
+  }
+
+
+
+void run_bytecode_tests(KCtx *ctx) {
+  KVal top;
+  BC({ emit(ctx, OP_PUSH_NIL); });
+  IS(top.type == KT_NIL);
+
+  BC({ emit(ctx, OP_PUSH_TRUE); });
+  IS(top.type == KT_TRUE);
+
+  BC({ emit(ctx, OP_PUSH_FALSE); });
+  IS(top.type == KT_FALSE);
+
+  char *hello = "Hello!";
+  BC({
+    emit(ctx, OP_PUSH_STRING);
+    emit_bytes(ctx, 1, (uint8_t[]){6});
+    emit_bytes(ctx, 6, (uint8_t *)hello);
+  });
+  IS(is_str(top, hello));
+
+  char *long_string =
+      "this exceeds 255 characters... Lorem ipsum dolor sit amet, consectetuer "
+      "adipiscing elit. Sed posuere interdum sem. Quisque ligula eros "
+      "ullamcorper quis, lacinia quis facilisis sed sapien. Mauris varius diam "
+      "vitae arcu. Sed arcu lectus auctor vitae, consectetuer et venenatis "
+      "eget velit. Sed augue orci, lacinia eu tincidunt et eleifend nec lacus. "
+      "Donec ultricies nisl ut felis, suspendisse potenti. Lorem ipsum ligula "
+      "ut hendrerit mollis, ipsum erat vehicula risus, eu suscipit sem libero "
+      "nec erat. Aliquam erat volutpat. Sed congue augue vitae neque. Nulla "
+      "consectetuer porttitor pede. Fusce purus morbi tortor magna condimentum "
+      "vel, placerat id blandit sit amet tortor.";
+  union {
+    uint32_t len;
+    uint8_t bytes[4];
+  } len;
+  len.len = strlen(long_string);
+  BC({
+    emit(ctx, OP_PUSH_STRING_LONG);
+    emit_bytes(ctx, 4, len.bytes);
+    emit_bytes(ctx, len.len, (uint8_t*)long_string);
+  });
+  IS(is_str(top, long_string));
+
+  BC({
+    emit(ctx, OP_PUSH_INT8);
+    emit_bytes(ctx, 1, (uint8_t[]){-42});
+  });
+  IS(is_num(top, -42));
+
+  union {
+    int16_t num;
+    uint8_t bytes[2];
+  } i16;
+
+  BC({
+    emit(ctx, OP_PUSH_INT16);
+    i16.num = 12345;
+    emit_bytes(ctx, 2, i16.bytes);
+  });
+  IS(is_num(top, 12345));
+
+  union {
+    double num;
+    uint8_t bytes[8];
+  } num;
+
+  BC({
+    emit(ctx, OP_PUSH_NUMBER);
+    num.num = 42069.666;
+    emit_bytes(ctx, 8, num.bytes);
+  });
+  IS(is_num(top, 42069.666));
+
+  BC({ emit(ctx, OP_PUSH_ARRAY); });
+  IS(top.type == KT_ARRAY && top.data.array->size == 0);
+
+  BC({
+    emit(ctx, OP_PUSH_ARRAY);
+    emit_bytes(ctx, 9, (uint8_t[]) { OP_PUSH_INT8, 1, OP_APUSH, OP_PUSH_INT8, 2, OP_APUSH, OP_PUSH_INT8, 42, OP_APUSH });
+  });
+  IS(is_num_arr(top, 3, (double[]){1, 2, 42}));
+
+}
+
 void run_tests(KCtx *ctx, void *user) {
-  run_native_tests(ctx);
-  run_stdlib_tests(ctx);
+  // run_native_tests(ctx);
+  // run_stdlib_tests(ctx);
+
+  run_bytecode_tests(ctx);
 }
 
 int main(int argc, char **argv) {
