@@ -744,10 +744,18 @@ bool get_native_fn(const char *name, KNative *nat);
 /* Execute bytecode */
 void execute(KCtx *ctx) {
 #define NEXT() ctx->bytecode->items[ctx->pc++]
+#define ASSERT_STACK(n)                                                        \
+  if (ctx->stack->size < (n)) {                                                \
+    min_stack = (n);                                                           \
+    goto underflow;                                                            \
+  }
+
   union { int16_t n; uint8_t b[2]; } i16;
   union { uint16_t n; uint8_t b[2]; } u16;
   union { double n; uint8_t b[8]; } num;
   union { uint32_t n; uint8_t b[4]; } u32;
+
+  size_t min_stack;
 
   for(;;) {
     uint8_t op;
@@ -808,24 +816,27 @@ void execute(KCtx *ctx) {
     }
 #define BINARY_OP(op)                                                          \
   {                                                                            \
-    assert(ctx->stack->size > 1);                                              \
+    ASSERT_STACK(2);                                                           \
     KVal b = arr_pop(ctx->stack);                                              \
     KVal a = arr_pop(ctx->stack);                                              \
     push = (KVal){.type = KT_NUMBER,                                           \
                   .data.number = a.data.number op b.data.number};              \
     goto push_it;                                                              \
   }
+
     case OP_PLUS: BINARY_OP(+);
     case OP_MINUS: BINARY_OP(-);
     case OP_MUL: BINARY_OP(*);
     case OP_DIV: BINARY_OP(/);
     case OP_MOD: {
+      ASSERT_STACK(2);
       KVal b = arr_pop(ctx->stack);
       KVal a = arr_pop(ctx->stack);
       push = (KVal){.type = KT_NUMBER, .data.number = (double)((long)a.data.number % (long)b.data.number)};
       goto push_it;
     }
     case OP_SHL: {
+      ASSERT_STACK(2);
       KVal b = arr_pop(ctx->stack);
       KVal a = arr_pop(ctx->stack);
       push = (KVal){.type = KT_NUMBER,
@@ -834,6 +845,7 @@ void execute(KCtx *ctx) {
       goto push_it;
     }
     case OP_SHR: {
+      ASSERT_STACK(2);
       KVal b = arr_pop(ctx->stack);
       KVal a = arr_pop(ctx->stack);
       push = (KVal){.type = KT_NUMBER,
@@ -842,12 +854,14 @@ void execute(KCtx *ctx) {
       goto push_it;
     }
     case OP_AND: {
+      ASSERT_STACK(2);
       KVal b = arr_pop(ctx->stack);
       KVal a = arr_pop(ctx->stack);
       push = (KVal){.type = (!falsy(a) && !falsy(b)) ? KT_TRUE : KT_FALSE};
       goto push_it;
     }
     case OP_OR: {
+      ASSERT_STACK(2);
       KVal b = arr_pop(ctx->stack);
       KVal a = arr_pop(ctx->stack);
       push = (KVal){.type = (!falsy(a) || !falsy(b)) ? KT_TRUE : KT_FALSE};
@@ -855,6 +869,7 @@ void execute(KCtx *ctx) {
     }
 
     case OP_EQ: {
+      ASSERT_STACK(2);
       KVal b = arr_pop(ctx->stack);
       KVal a = arr_pop(ctx->stack);
       push = (KVal){.type = kval_eq(a, b) ? KT_TRUE : KT_FALSE};
@@ -863,20 +878,22 @@ void execute(KCtx *ctx) {
 
       /* Basic stack manipulation */
     case OP_DUP:
+      ASSERT_STACK(1);
       push = arr_peek(ctx->stack);
       goto push_it;
     case OP_DROP:
+      ASSERT_STACK(1);
       arr_pop(ctx->stack);
       break;
     case OP_SWAP: {
-      assert(ctx->stack->size > 1);
+      ASSERT_STACK(2);
       KVal tmp = ctx->stack->items[ctx->stack->size - 1];
       ctx->stack->items[ctx->stack->size - 1] = ctx->stack->items[ctx->stack->size - 2];
       ctx->stack->items[ctx->stack->size - 2] = tmp;
       break;
     }
     case OP_ROT: {
-      assert(ctx->stack->size > 2);
+      ASSERT_STACK(3);
       KVal tmp = ctx->stack->items[ctx->stack->size - 3];
       ctx->stack->items[ctx->stack->size - 3] = ctx->stack->items[ctx->stack->size - 2];
       ctx->stack->items[ctx->stack->size - 2] = ctx->stack->items[ctx->stack->size - 1];
@@ -884,17 +901,17 @@ void execute(KCtx *ctx) {
       break;
     }
     case OP_OVER: {
-      assert(ctx->stack->size > 1);
+      ASSERT_STACK(2);
       push = ctx->stack->items[ctx->stack->size - 2];
       goto push_it;
     }
     case OP_NIP:
-      assert(ctx->stack->size > 1);
+      ASSERT_STACK(2);
       ctx->stack->items[ctx->stack->size - 2] = ctx->stack->items[ctx->stack->size - 1];
       ctx->stack->size -= 1;
       break;
     case OP_TUCK:
-      assert(ctx->stack->size > 1);
+      ASSERT_STACK(2);
       push = ctx->stack->items[ctx->stack->size - 1];
       ctx->stack->items[ctx->stack->size - 1] =
           ctx->stack->items[ctx->stack->size - 2];
@@ -909,7 +926,7 @@ void execute(KCtx *ctx) {
     case OP_MOVE5: {
       size_t n = (op == OP_MOVEN ? (size_t)arr_pop(ctx->stack).data.number
                                  : op - OP_MOVEN);
-      assert(ctx->stack->size > n);
+      ASSERT_STACK(n+1);
       KVal tmp = ctx->stack->items[ctx->stack->size - n - 1];
       for (size_t i = (ctx->stack->size - n - 1); i < ctx->stack->size - 1; i++)
         ctx->stack->items[i] = ctx->stack->items[i + 1];
@@ -925,7 +942,7 @@ void execute(KCtx *ctx) {
     case OP_PICK5: {
       size_t n = (op == OP_PICKN ? (size_t)arr_pop(ctx->stack).data.number
                                  : op - OP_PICKN);
-      assert(ctx->stack->size > n);
+      ASSERT_STACK(n+1);
       push = ctx->stack->items[ctx->stack->size - n - 1];
       goto push_it;
     }
@@ -962,8 +979,13 @@ void execute(KCtx *ctx) {
     continue;
   push_it:
     ARR_PUSH(ctx->stack, push);
+    continue;
+  underflow:
+    fprintf(stderr, "Stack underflow! Expected at least %zu items (have %zu)\n",
+            min_stack, ctx->stack->size);
   }
 #undef NEXT
+#undef ASSERT_STACK
 }
 
 void emit_bytes(KCtx *ctx, size_t len, uint8_t *bytes) {
