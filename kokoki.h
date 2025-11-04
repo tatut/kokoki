@@ -32,6 +32,10 @@ typedef enum KOp {
   OP_MINUS, // -
   OP_MUL,   // *
   OP_DIV,   // /
+  OP_LT,    // <
+  OP_GT,    // >
+  OP_LTE,   // <=
+  OP_GTE,   // >=
   OP_MOD,   // %
   OP_SHL,   // <<
   OP_SHR,   // >>

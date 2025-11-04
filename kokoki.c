@@ -823,11 +823,26 @@ void execute(KCtx *ctx) {
                   .data.number = a.data.number op b.data.number};              \
     goto push_it;                                                              \
   }
-
     case OP_PLUS: BINARY_OP(+);
     case OP_MINUS: BINARY_OP(-);
     case OP_MUL: BINARY_OP(*);
     case OP_DIV: BINARY_OP(/);
+
+#define BINARY_BOOL_OP(OP)                                                     \
+  {                                                                            \
+    ASSERT_STACK(2);                                                           \
+    KVal b = arr_pop(ctx->stack);                                              \
+    KVal a = arr_pop(ctx->stack);                                              \
+    bool res = a.data.number OP b.data.number;                                 \
+    push = (KVal){.type = res ? KT_TRUE : KT_FALSE};                           \
+    goto push_it;                                                              \
+  }
+
+    case OP_LT: BINARY_BOOL_OP(<);
+    case OP_GT: BINARY_BOOL_OP(>);
+    case OP_LTE: BINARY_BOOL_OP(<=);
+    case OP_GTE: BINARY_BOOL_OP(>=);
+
     case OP_MOD: {
       ASSERT_STACK(2);
       KVal b = arr_pop(ctx->stack);
@@ -977,12 +992,12 @@ void execute(KCtx *ctx) {
       exit(1);
     }
     continue;
+  underflow:
+    err(push, "Stack underflow! (%zu < %zu)", ctx->stack->size, min_stack);
   push_it:
     ARR_PUSH(ctx->stack, push);
     continue;
-  underflow:
-    fprintf(stderr, "Stack underflow! Expected at least %zu items (have %zu)\n",
-            min_stack, ctx->stack->size);
+
   }
 #undef NEXT
 #undef ASSERT_STACK
@@ -1627,6 +1642,10 @@ KNative native[] = {
     {.name = "-", .op = OP_MINUS},
     {.name = "*", .op = OP_MUL},
     {.name = "/", .op = OP_DIV},
+    {.name = "<", .op = OP_LT},
+    {.name = ">", .op = OP_GT},
+    {.name = "<=", .op = OP_LTE},
+    {.name = ">=", .op = OP_GTE},
     {.name = "%", .op = OP_MOD},
     {.name = "<<", .op = OP_SHL},
     {.name = ">>", .op = OP_SHR},
@@ -2008,11 +2027,11 @@ void kokoki_init(void (*callback)(KCtx*,void*), void *user) {
     .line = 1,
     .col = 1
   };
-  printf("Compile stdlib!");
+  //printf("Compile stdlib!");
   compile(ctx, &in, C_TOPLEVEL);
-  printf("compile done, executing it!");
+  //printf("compile done, executing it!");
   execute(ctx);
-  printf("stdlib executed!");
+  //printf("stdlib executed!");
 
   tgc_free(&gc, stdlib);
   callback(ctx,user);
