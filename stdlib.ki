@@ -23,119 +23,116 @@
 : 2nip (a b c d -- c d)
   rot drop rot drop ;
 
-: tuck (a b -- b a b)
-  dup -rot ;
-
-: 2tuck (a b c d -- c d a b c d)
-  2dup [5 move] 4 times ;
-
-: 2over (a b c d -- a b cd a b)
-  [3 pick] 2 times ;
-
-: 2rot (a b c d e f -- c d e f a b)
-  [5 move] 2 times ;
-
-: 2swap (a b c d -- c d a b)
-  [3 move] 2 times ;
-
-: 2drop (a b --)
-  drop drop ;
-
-# Convert string containing digits to an integer number
-: str->int (str -- num)
-  [48 -] each
-  [swap 10 * +] fold ;
-
-# Turn n top items in stack to an array
-# eg. 1 2 2 array => [1 2]
-: array (n-items* n -- arr)
-  [] copy swap [swap apush] swap times reverse ;
-
-# Implement if with the primitive cond
-# use like:
-# 1 2 < ["one is less than two".] if
-: if (bool code -- )
-  swap [] copy swap apush swap apush cond ;
-
-# Like if, but also takes an else block
-: if-else (bool then else -- )
-  swap rot [] copy swap apush swap apush
-  true apush swap apush
-  cond ;
-
-# ch-idx  first index of char in string
-: ch-idx (str ch -- str idx)
-  swap len (str ch len)
-  0 swap
-  [ (ch str idx len -- ch str idx len continue?)
-   [ [2dup =] [2drop -1 0 false ] # at end, not found
-
-     # character found here
-     [2 pick 2 pick aget nip 4 pick = ] false
-
-     # continue to next index
-     true [ swap 1 + swap  true ] ] cond ]
-  while
-  drop rot drop
-  ;
-
-
-# split string at char
-: split-at (str ch -- str1 str2)
-  swap len swap rot ch-idx
-  [ [dup -1 = ] [drop nip ""]
-    true [tuck 0 swap slice
-          2swap 1 + swap 3 move -rot slice nip] ]
-  cond ;
-
-# split string to array of lines
-: lines (str -- arr)
-  [] copy swap
-  [ 10 split-at
-    [ # no more lines (last is empty)
-      [len 0 =] [drop apush false]
-
-      # has more lines
-      true [-rot apush swap true]
-      ] cond
-  ] while ;
-
-: first (arr -- arr item)
-  [ [len 0 = ] nil
-    true [0 aget] ] cond ;
-
-: last (arr -- arr item)
-  [ [ len 0 = ] nil
-    true [len 1 - aget] ] cond ;
-
-: butfirst (arr0 -- arr1)
-  len 1 swap slice nip ;
-
-: butlast (arr0 -- arr1)
-  [ [ len 0 > ] [ len 1 - 0 swap slice nip ] ] cond ;
-
-: triml (str0 -- str1)
-  [ first 32 = [butfirst true] false if-else ] while ;
-
-: trimr (str0 -- str1)
-  [ last 32 = [butlast true] false if-else ] while ;
-
-: trim (str0 -- str1)
-  triml trimr ;
-
-: abs (n0 -- n1)
-  dup 0 < [-1 *] if ;
-
-#: interlave (arr0 arr1 -- arr2)
-#  [] copy
-#  [ rot len 0 > [ first  ] if # take from left list
-
-#
-# [ point x y ] record
-# => defines
-# getters: x? y?
-# setters: x! y!
-# constructors:
-# new-point ( x y -- point )
-# empty-point ( -- point)
-# point? (check if item is a point)
+### : 2tuck (a b c d -- c d a b c d)
+###   2dup [5 move] 4 times ;
+###
+### : 2over (a b c d -- a b cd a b)
+###   [3 pick] 2 times ;
+###
+### : 2rot (a b c d e f -- c d e f a b)
+###   [5 move] 2 times ;
+###
+### : 2swap (a b c d -- c d a b)
+###   [3 move] 2 times ;
+###
+### : 2drop (a b --)
+###   drop drop ;
+###
+### # Convert string containing digits to an integer number
+### : str->int (str -- num)
+###   [48 -] each
+###   [swap 10 * +] fold ;
+###
+### # Turn n top items in stack to an array
+### # eg. 1 2 2 array => [1 2]
+### : array (n-items* n -- arr)
+###   [] copy swap [swap apush] swap times reverse ;
+###
+### # Implement if with the primitive cond
+### # use like:
+### # 1 2 < ["one is less than two".] if
+### : if (bool code -- )
+###   swap [] copy swap apush swap apush cond ;
+###
+### # Like if, but also takes an else block
+### : if-else (bool then else -- )
+###   swap rot [] copy swap apush swap apush
+###   true apush swap apush
+###   cond ;
+###
+### # ch-idx  first index of char in string
+### : ch-idx (str ch -- str idx)
+###   swap len (str ch len)
+###   0 swap
+###   [ (ch str idx len -- ch str idx len continue?)
+###    [ [2dup =] [2drop -1 0 false ] # at end, not found
+###
+###      # character found here
+###      [2 pick 2 pick aget nip 4 pick = ] false
+###
+###      # continue to next index
+###      true [ swap 1 + swap  true ] ] cond ]
+###   while
+###   drop rot drop
+###   ;
+###
+###
+### # split string at char
+### : split-at (str ch -- str1 str2)
+###   swap len swap rot ch-idx
+###   [ [dup -1 = ] [drop nip ""]
+###     true [tuck 0 swap slice
+###           2swap 1 + swap 3 move -rot slice nip] ]
+###   cond ;
+###
+### # split string to array of lines
+### : lines (str -- arr)
+###   [] copy swap
+###   [ 10 split-at
+###     [ # no more lines (last is empty)
+###       [len 0 =] [drop apush false]
+###
+###       # has more lines
+###       true [-rot apush swap true]
+###       ] cond
+###   ] while ;
+###
+### : first (arr -- arr item)
+###   [ [len 0 = ] nil
+###     true [0 aget] ] cond ;
+###
+### : last (arr -- arr item)
+###   [ [ len 0 = ] nil
+###     true [len 1 - aget] ] cond ;
+###
+### : butfirst (arr0 -- arr1)
+###   len 1 swap slice nip ;
+###
+### : butlast (arr0 -- arr1)
+###   [ [ len 0 > ] [ len 1 - 0 swap slice nip ] ] cond ;
+###
+### : triml (str0 -- str1)
+###   [ first 32 = [butfirst true] false if-else ] while ;
+###
+### : trimr (str0 -- str1)
+###   [ last 32 = [butlast true] false if-else ] while ;
+###
+### : trim (str0 -- str1)
+###   triml trimr ;
+###
+### : abs (n0 -- n1)
+###   dup 0 < [-1 *] if ;
+###
+### #: interlave (arr0 arr1 -- arr2)
+### #  [] copy
+### #  [ rot len 0 > [ first  ] if # take from left list
+###
+### #
+### # [ point x y ] record
+### # => defines
+### # getters: x? y?
+### # setters: x! y!
+### # constructors:
+### # new-point ( x y -- point )
+### # empty-point ( -- point)
+### # point? (check if item is a point)

@@ -1,3 +1,4 @@
+// clang-format off
 #ifndef kokoki_h
 #define kokoki_h
 
@@ -41,8 +42,11 @@ typedef enum KOp {
 
   /* Basic stack manipulation words.
    */
-  OP_DUP,   // duplicate top of stack
-  OP_DROP,  // drop top of stack
+  OP_DUP,  // duplicate top of stack
+  OP_DROP, // drop top of stack
+  OP_SWAP, // swap
+  OP_ROT,  // rot
+  OP_OVER, //  over
   OP_NIP,   // drop 2nd item
   OP_TUCK,  // duplicate top item and place it under 2nd item
   OP_MOVEN, // move Nth item to top
@@ -63,33 +67,54 @@ typedef enum KOp {
   OP_JMP,       // unconditional jump, next 3 bytes is the address
   OP_JMP_TRUE,  // conditional jump if top of stack is truthy
   OP_JMP_FALSE, // conditional jump if top of stack is falsy
-  OP_CALL,      // call a word, pushes current pos into return stack
-  OP_RETURN,    // return to position in top of return stack
-  OP_INVOKE,     // invoke a native C implemented word (2 byte index)
+  OP_CALL, // call a word (next 3 bytes is the address), pushes current pos into
+           // return stack
+  OP_RETURN, // return to position in top of return stack
+  OP_INVOKE, // invoke a native C implemented word (2 byte index)
 
   /* Operations needed to arrays Inline data structure operations
    */
   OP_APUSH, // (arr item -- arr) push top of stack to array
+
+  /* Misc */
+  OP_PRINT,  // "." print value
 } KOp;
 
 typedef enum KType {
-  KT_NIL,        // null value
-  KT_TRUE,       // true boolean
-  KT_FALSE,      // false boolean
-  KT_NUMBER,     // numbers double precision
-  KT_STRING,     // string
-  KT_NAME,       // variable name
-  KT_ARRAY,      // dynamic array of items
-  KT_HASHMAP,    // hashmap of values
-  KT_REF_NAME,   // reference a named container for a value
-  KT_REF_VALUE,  // the actual instance containing the value
-  KT_NATIVE,     // native implemented function
-  KT_ERROR,      // error object (parsing or runtime)
-  KT_DEFINITION, // ':' definition (uses array where 1st item is the name)
-  KT_BLOCK,      // type of array that is executed in place
-  KT_EOF,        // end of input
-  KT_CODE_ADDR   // byte code address (for compiled word definition)
+  KT_NIL,           // null value
+  KT_TRUE,          // true boolean
+  KT_FALSE,         // false boolean
+  KT_NUMBER,        // numbers double precision
+  KT_STRING,        // string
+  KT_NAME,          // variable name
+  KT_ARRAY_START,   // '[' start of array literal
+  KT_ARRAY_END,     // ']' end of array literal
+  KT_ARRAY,         // array runtime type
+  KT_HASHMAP_START, // '{' start of hashmap literal
+  KT_HASHMAP_END,   // '}' end of hashmap literal
+  KT_HASHMAP,       // hashmap runtime type
+  KT_REF_NAME,      // reference a named container for a value
+  KT_REF_VALUE,     // the actual instance containing the value
+  KT_NATIVE,        // native implemented function
+  KT_ERROR,         // error object (parsing or runtime)
+  KT_DEF_START,     // ':' definition (uses array where 1st item is the name)
+  KT_DEF_END,       // ';' ends definition
+  KT_BLOCK,         // type of array that is executed in place
+  KT_EOF,           // end of input
+  KT_CODE_ADDR,     // byte code address (for compiled word definition)
+  KT_COMMA          // ',' delimiter for arrays and hashmaps
+
 } KType;
+
+/* Struct for reader */
+typedef struct KReader {
+  char *at;
+  char *end;
+  int line, col;
+  KType last_token_type;
+} KReader;
+
+
 
 // push to dynamic array, growing it as needed
 #define ARR_PUSH(arr, v)                                                       \

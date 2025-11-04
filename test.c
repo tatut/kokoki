@@ -397,10 +397,38 @@ void run_bytecode_tests(KCtx *ctx) {
   });
   IS(is_num_arr(top, 3, (double[]){1, 2, 42}));
 
+  BC({
+    emit_bytes(
+        ctx, 5,
+        (uint8_t[]){OP_PUSH_INT8, 42, OP_PUSH_INT8, 7, OP_DIV});
+  });
+  IS(is_num(top, 6));
+
+  BC({
+    emit_bytes(ctx, 5, (uint8_t[]){OP_PUSH_INT8, 42, OP_PUSH_INT8, 7, OP_MUL});
+  });
+  IS(is_num(top, 294));
+
+  BC({
+    emit_bytes(ctx, 5, (uint8_t[]){OP_PUSH_INT8, 42, OP_PUSH_INT8, 7, OP_PLUS});
+  });
+  IS(is_num(top, 49));
+
+  BC({
+    emit_bytes(ctx, 5, (uint8_t[]){OP_PUSH_INT8, 42, OP_PUSH_INT8, 7, OP_MINUS});
+  });
+  IS(is_num(top, 35));
+
+BC({
+    emit_bytes(ctx, 5, (uint8_t[]){OP_PUSH_INT8, 42, OP_PUSH_INT8, 7, OP_MOD});
+  });
+  IS(is_num(top, 0));
+
+
 }
 
 void run_tests(KCtx *ctx, void *user) {
-  // run_native_tests(ctx);
+  run_native_tests(ctx);
   // run_stdlib_tests(ctx);
 
   run_bytecode_tests(ctx);
