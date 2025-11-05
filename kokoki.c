@@ -796,6 +796,7 @@ void execute(KCtx *ctx) {
       push.data.string.data = tgc_alloc(&gc, push.data.string.len);
       memcpy(push.data.string.data, &ctx->bytecode->items[ctx->pc], push.data.string.len);
       ctx->pc += push.data.string.len;
+      printf("pushing short string: \"%.*s\"\n", (int) push.data.string.len, push.data.string.data);
       goto push_it;
     case OP_PUSH_STRING_LONG:
       memcpy(u32.b, &ctx->bytecode->items[ctx->pc], 4);
@@ -969,7 +970,7 @@ void execute(KCtx *ctx) {
       addr = (addr << 8) + NEXT();
       addr = (addr << 8) + NEXT();
       if(op == OP_CALL) {
-        //printf("calling to %d\n", addr);
+        printf("calling to %d\n", addr);
         ARR_PUSH(ctx->return_addr, ctx->pc);
       }
       ctx->pc = addr;
@@ -1095,17 +1096,21 @@ void emit_val(KCtx *ctx, KVal val) {
 }
 
 typedef enum CompileMode {
-  C_TOPLEVEL,
-  C_DEFINITION,
-  C_ARRAY,
-  C_HASHMAP,
-  C_IF // compiling IF, waiting for ELSE or THEN
+  C_TOPLEVEL,   // compile everything until EOF
+  C_DEFINITION, // compiling word def, wait for ';'
+  C_ARRAY,      // compiling array literal item, wait for comma or ']'
+  C_HASHMAP,    // compiling hashmap literal item, wait for comma or '}'
+  C_IF,         // compiling IF, waiting for ELSE or THEN
+  C_IF_ELSE     // compiling after IF ... ELSE, waiting for THEN
 } CompileMode;
 
+
+static int compile_depth=0;
 /* Read tokens from in and compile it to bytecode.
  * Sets program counter to start of compiled bytecode.
  */
 void compile(KCtx *ctx, KReader *in, CompileMode mode) {
+  compile_depth++;
   size_t pc = ctx->pc;
   if (pc && (mode == C_TOPLEVEL)) {
     if (ctx->bytecode->items[pc - 1] != OP_END) {
@@ -1142,6 +1147,10 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
       break;
     case C_IF:
       if (is_name(token, "else") || is_name(token, "then"))
+        goto done;
+      break;
+    case C_IF_ELSE:
+      if (is_name(token, "then"))
         goto done;
       break;
     }
@@ -1186,6 +1195,7 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
       /* Check special control structures */
 
       if (is_name(token, "if")) {
+        printf("compile if, current depth: %d\n", compile_depth);
         // next up is either else block or then block, depending if ending
         // token is "else" or "then", reserve space for a jump
         size_t before_pos = ctx->bytecode->size;
@@ -1193,7 +1203,6 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
         // nested compile
         compile(ctx, in, C_IF);
         if (is_name(in->last_token, "then")) {
-
           // jmp over the then block if false
           size_t after_pos = ctx->bytecode->size;
           printf("before %zu compile jmp false to %zu\n", before_pos, after_pos);
@@ -1201,7 +1210,42 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
           ctx->bytecode->items[before_pos + 1] = after_pos >> 16;
           ctx->bytecode->items[before_pos + 2] = after_pos >> 8;
           ctx->bytecode->items[before_pos + 3] = after_pos;
+        } else if (is_name(in->last_token, "else")) {
+          // jump to else block if false
+          // reserve space to jump over then block
+          size_t after_then_pos = ctx->bytecode->size;
+          emit_bytes(ctx, 4, (uint8_t[]){0, 0, 0, 0});
+          size_t else_pos = ctx->bytecode->size;
+          compile(ctx, in, C_IF_ELSE);
+          if (!is_name(in->last_token, "then")) {
+            fprintf(stderr,
+                    "Compilation failed: expected 'then' to end if "
+                    "statement, got: %s\n",
+                    TYPE_NAME[in->last_token.type]);
+            kval_dump(in->last_token);
+            printf("\n");
+            return;
+          }
+
+          ctx->bytecode->items[before_pos + 0] = OP_JMP_FALSE;
+          ctx->bytecode->items[before_pos + 1] = else_pos >> 16;
+          ctx->bytecode->items[before_pos + 2] = else_pos >> 8;
+          ctx->bytecode->items[before_pos + 3] = else_pos;
+
+          // after then block, jump over else block
+          uint32_t after_else_pos = ctx->bytecode->size;
+          printf(" after else pos %u\n", after_else_pos);
+          ctx->bytecode->items[after_then_pos + 0] = OP_JMP;
+          ctx->bytecode->items[after_then_pos + 1] = after_else_pos >> 16;
+          ctx->bytecode->items[after_then_pos + 2] = after_else_pos >> 8;
+          ctx->bytecode->items[after_then_pos + 3] = after_else_pos;
+
+        } else {
+          fprintf(stderr, "if/else/then failed, unexpected token: %s\n",
+                  TYPE_NAME[in->last_token.type]);
+          return;
         }
+
         break;
       }
 
@@ -1261,8 +1305,8 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
       compile(ctx, in, C_DEFINITION);
       //printf("   done, addr: %zu\n", start);
       uint32_t jump_over_pos = ctx->bytecode->size;
-      ctx->bytecode->items[jump_over_pos_idx + 0] = jump_over_pos >> 24;
-      ctx->bytecode->items[jump_over_pos_idx + 1] = jump_over_pos >> 16;
+      ctx->bytecode->items[jump_over_pos_idx + 0] = jump_over_pos >> 16;
+      ctx->bytecode->items[jump_over_pos_idx + 1] = jump_over_pos >> 8;
       ctx->bytecode->items[jump_over_pos_idx + 2] = jump_over_pos;
       hm_put(ctx->names, name, (KVal){.type = KT_CODE_ADDR, .data.address = start});
       break;
@@ -1311,6 +1355,7 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
     break;
   default: break;
   }
+  compile_depth--;
   //printf("----\n");
 }
 

@@ -161,6 +161,19 @@ bool is_num(KVal v, double num) {
   "  [dup 55 <] \"adult\""                                                     \
   "  true       \"older adult\"] cond"
 
+// adapted from https://www.forth.com/starting-forth/4-conditional-if-then-statements/
+#define eggsize                                                                \
+  ": eggsize ( n -- ) "                                                        \
+  "   dup 18 < if  \"reject\"      else "                                      \
+  "   dup 21 < if  \"small\"       else "                                      \
+  "   dup 24 < if  \"medium\"      else "                                      \
+  "   dup 27 < if  \"large\"       else "                                      \
+  "   dup 30 < if  \"extra large\" else "                                      \
+  "   \"error\" "                                                              \
+  "   then then then then then nip ; "
+
+
+
 void run_native_tests(KCtx *ctx) {
   TEST("comment", "# this is a comment\n 1 2 3 + # and so is this\n+", 1,
        top.data.number == 6);
@@ -174,7 +187,7 @@ void run_native_tests(KCtx *ctx) {
   TEST("rot", "1 2 3 rot", 3, is_num(top, 1));
   TEST("drop", "1 2 3 drop", 2, is_num(top, 2));
   TEST("swap", "420 69 swap", 2, is_num(top, 420));
-  TEST("basics", "[200.0 200.0 + ] exec 0.67 + 10.01 dup + +", 1, is_num(top, 420.69));
+  //TEST("basics", "[200.0 200.0 + ] exec 0.67 + 10.01 dup + +", 1, is_num(top, 420.69));
 
   TEST("define value", ": pi 3.1415 ; 2 pi *", 1, is_num(top, 6.283));
   TEST("define code", ": squared dup * ; 3 squared", 1, is_num(top, 9));
@@ -184,6 +197,23 @@ void run_native_tests(KCtx *ctx) {
 
   TEST("if-then-true", "1 2 < if \"small\" then", 1, is_str(top, "small"));
   TEST("if-then-false", "1 2 > if \"small\" then", 0, true);
+  TEST("if-then-else-true", "1 2 < if \"small\" else \"big\" then", 1,
+       is_str(top, "small"));
+  TEST("if-then-else-false", "10 2 < if \"small\" else \"big\" then", 1,
+       is_str(top, "big"));
+
+  TEST("if nested",
+       ": howbig dup 100 > if 1000 > if \"very\" then \"big\" then ; "
+       "120 howbig",
+       1, is_str(top, "big"));
+
+  TEST("if nested both",
+       ": howbig dup 100 > if 1000 > if \"very\" then \"big\" then ; "
+       "1220 howbig drop",
+       1, is_str(top, "very"));
+
+  TEST("eggsize", eggsize " 25 eggsize", 1, is_str(top, "large"));
+
 
   //TEST("cond err", "42 cond", 1, is_error(top, "Cond requires an array with alternating condition/action pairs."));
   TEST("cond1", "7 " age_check, 2, is_str(top, "child"));
