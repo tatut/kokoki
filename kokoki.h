@@ -79,6 +79,7 @@ typedef enum KOp {
   /* Operations needed to arrays Inline data structure operations
    */
   OP_APUSH, // (arr item -- arr) push top of stack to array
+  OP_HMPUT, // (hm key val -- hm) put value to hashmap
 
   /* Misc */
   OP_PRINT,  // "." print value
@@ -109,16 +110,6 @@ typedef enum KType {
   KT_COMMA          // ',' delimiter for arrays and hashmaps
 
 } KType;
-
-/* Struct for reader */
-typedef struct KReader {
-  char *at;
-  char *end;
-  int line, col;
-  KType last_token_type;
-} KReader;
-
-
 
 // push to dynamic array, growing it as needed
 #define ARR_PUSH(arr, v)                                                       \
@@ -176,6 +167,14 @@ typedef struct KVal {
     uint32_t address;
   } data;
 } KVal;
+
+/* Struct for reader */
+typedef struct KReader {
+  char *at;
+  char *end;
+  int line, col;
+  KVal last_token;
+} KReader;
 
 typedef struct KRef {
   KVal value;

@@ -182,6 +182,9 @@ void run_native_tests(KCtx *ctx) {
   TEST("compare <", "7 10 <", 1, top.type == KT_TRUE);
   TEST("compare >", "7 10 >", 1, top.type == KT_FALSE);
 
+  TEST("if-then-true", "1 2 < if \"small\" then", 1, is_str(top, "small"));
+  TEST("if-then-false", "1 2 > if \"small\" then", 0, true);
+
   //TEST("cond err", "42 cond", 1, is_error(top, "Cond requires an array with alternating condition/action pairs."));
   TEST("cond1", "7 " age_check, 2, is_str(top, "child"));
   TEST("cond2", "22 " age_check, 2, is_str(top, "young adult"));

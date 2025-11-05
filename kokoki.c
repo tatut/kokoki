@@ -551,7 +551,7 @@ KVal read(KReader *in) {
       break;
     }
   }
-  in->last_token_type = out.type;
+  in->last_token = out;
   return out;
 
  fail: {
@@ -559,8 +559,9 @@ KVal read(KReader *in) {
     char *err = tgc_alloc(&gc, err_len);
     snprintf(err, err_len, "Parse error on line %d, col %d: '%c'", in->line, in->col, at(in));
     next(in);
-    in->last_token_type = KT_ERROR;
-    return (KVal){.type = KT_ERROR, .data.string = {.len = err_len - 1, err}};
+    in->last_token =
+        (KVal){.type = KT_ERROR, .data.string = {.len = err_len - 1, err}};
+    return in->last_token;
  }
 
 }
@@ -760,7 +761,7 @@ void execute(KCtx *ctx) {
   for(;;) {
     uint8_t op;
     op = NEXT();
-    //printf("OP %d\n", op);
+    printf("[PC:%u] OP %d\n", ctx->pc - 1, op);
     KVal push;
     switch (op) {
     case OP_END:
@@ -968,22 +969,44 @@ void execute(KCtx *ctx) {
       addr = (addr << 8) + NEXT();
       addr = (addr << 8) + NEXT();
       if(op == OP_CALL) {
-        printf("calling to %d\n", addr);
+        //printf("calling to %d\n", addr);
         ARR_PUSH(ctx->return_addr, ctx->pc);
       }
       ctx->pc = addr;
+      break;
+    }
+    case OP_JMP_TRUE:
+    case OP_JMP_FALSE: {
+      ASSERT_STACK(1);
+      KVal cond = arr_pop(ctx->stack);
+      printf("check if ");
+      kval_dump(cond);
+      printf(" %s ?\n", op == OP_JMP_TRUE ? "truthy" : "falsy");
+      bool f = falsy(cond);
+      if((op == OP_JMP_TRUE && !f) || (op == OP_JMP_FALSE && f)) {
+        uint32_t addr = NEXT();
+        addr = (addr << 8) + NEXT();
+        addr = (addr << 8) + NEXT();
+        printf("  jumping to %d!\n", addr);
+        ctx->pc = addr;
+      } else {
+        ctx->pc += 3;
+        printf(" not jumping, pc: %u\n", ctx->pc);
+
+      }
       break;
     }
     case OP_RETURN: {
       ctx->pc = ctx->return_addr->items[--ctx->return_addr->size];
       break;
     }
-    case OP_INVOKE:
-      memcpy(u16.b, &ctx->bytecode->items[ctx->pc], 2);
-      ctx->pc += 2;
-      void (*impl)(KCtx*) = get_native_impl(u16.n);
+    case OP_INVOKE: {
+      uint16_t idx = NEXT();
+      idx = (idx << 8) + NEXT();
+      void (*impl)(KCtx*) = get_native_impl(idx);
       impl(ctx);
       break;
+    }
     case OP_PRINT:
       kval_dump(arr_pop(ctx->stack));
       break;
@@ -1075,7 +1098,8 @@ typedef enum CompileMode {
   C_TOPLEVEL,
   C_DEFINITION,
   C_ARRAY,
-  C_HASHMAP
+  C_HASHMAP,
+  C_IF // compiling IF, waiting for ELSE or THEN
 } CompileMode;
 
 /* Read tokens from in and compile it to bytecode.
@@ -1097,11 +1121,30 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
   KVal next;
   token = read(in);
   bool empty = true;
-  while ((mode == C_TOPLEVEL && token.type != KT_EOF) ||
-         (mode == C_DEFINITION && token.type != KT_DEF_END) ||
-         (mode == C_ARRAY && token.type != KT_COMMA &&
-          token.type != KT_ARRAY_END)) {
-    //printf("AT: "); kval_dump(token); printf("\n");
+  for (;;) {
+    // Check exit condition
+    switch (mode) {
+    case C_TOPLEVEL:
+      if (token.type == KT_EOF)
+        goto done;
+      break;
+    case C_DEFINITION:
+      if (token.type == KT_DEF_END)
+        goto done;
+      break;
+    case C_ARRAY:
+      if (token.type == KT_COMMA || token.type == KT_ARRAY_END)
+        goto done;
+      break;
+    case C_HASHMAP:
+      if (token.type == KT_COMMA || token.type == KT_HASHMAP_END)
+        goto done;
+      break;
+    case C_IF:
+      if (is_name(token, "else") || is_name(token, "then"))
+        goto done;
+      break;
+    }
     if (token.type == KT_EOF) {
       // EOF should only come at toplevel, otherwise it is unexpected
       fprintf(stderr, "Compilation failed, unexpected EOF");
@@ -1140,6 +1183,28 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
       break;
     }
     case KT_NAME: {
+      /* Check special control structures */
+
+      if (is_name(token, "if")) {
+        // next up is either else block or then block, depending if ending
+        // token is "else" or "then", reserve space for a jump
+        size_t before_pos = ctx->bytecode->size;
+        emit_bytes(ctx, 4, (uint8_t[]){0, 0, 0, 0});
+        // nested compile
+        compile(ctx, in, C_IF);
+        if (is_name(in->last_token, "then")) {
+
+          // jmp over the then block if false
+          size_t after_pos = ctx->bytecode->size;
+          printf("before %zu compile jmp false to %zu\n", before_pos, after_pos);
+          ctx->bytecode->items[before_pos + 0] = OP_JMP_FALSE;
+          ctx->bytecode->items[before_pos + 1] = after_pos >> 16;
+          ctx->bytecode->items[before_pos + 2] = after_pos >> 8;
+          ctx->bytecode->items[before_pos + 3] = after_pos;
+        }
+        break;
+      }
+
       /* name, must be previously defined in this context, a native function
        * or a special operator
        */
@@ -1209,11 +1274,11 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
       do {
         compile(ctx, in, C_ARRAY);
 
-      } while (in->last_token_type == KT_COMMA);
+      } while (in->last_token.type == KT_COMMA);
 
-      if (in->last_token_type != KT_ARRAY_END) {
+      if (in->last_token.type != KT_ARRAY_END) {
         fprintf(stderr, "Compilation failed, expected array end, got: %s\n",
-                TYPE_NAME[in->last_token_type]);
+                TYPE_NAME[in->last_token.type]);
         return;
       }
       break;
@@ -1228,6 +1293,7 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
     }
     token = read(in);
   }
+ done:
   switch (mode) {
   case C_TOPLEVEL:
     emit(ctx, OP_END);
@@ -1238,6 +1304,10 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
   case C_ARRAY:
     if (!empty)
       emit(ctx, OP_APUSH);
+    break;
+  case C_HASHMAP:
+    if (!empty)
+      emit(ctx, OP_HMPUT);
     break;
   default: break;
   }
@@ -2018,22 +2088,18 @@ void kokoki_init(void (*callback)(KCtx*,void*), void *user) {
   tgc_start(&gc, &dummy);
   KCtx *ctx = kctx_new();
 
-  size_t sz;
-  uint8_t *stdlib;
-  get_resource("stdlib.ki", &sz, &stdlib);
-  KReader in = {
-    .at = (char *)stdlib,
-    .end = (char *)stdlib + sz,
-    .line = 1,
-    .col = 1
-  };
-  //printf("Compile stdlib!");
-  compile(ctx, &in, C_TOPLEVEL);
-  //printf("compile done, executing it!");
-  execute(ctx);
-  //printf("stdlib executed!");
-
-  tgc_free(&gc, stdlib);
+  /* size_t sz; */
+  /* uint8_t *stdlib; */
+  /* get_resource("stdlib.ki", &sz, &stdlib); */
+  /* KReader in = { */
+  /*   .at = (char *)stdlib, */
+  /*   .end = (char *)stdlib + sz, */
+  /*   .line = 1, */
+  /*   .col = 1 */
+  /* }; */
+  /* compile(ctx, &in, C_TOPLEVEL); */
+  /* execute(ctx); */
+  /* tgc_free(&gc, stdlib); */
   callback(ctx,user);
   tgc_stop(&gc);
 }
@@ -2049,5 +2115,10 @@ bool kokoki_eval(KCtx *ctx, const char *source) {
   //printf("pc now at: %zu (size: %zu)\n", ctx->pc, ctx->bytecode->size);
   execute(ctx);
 
+  for (size_t i = 0; i < ctx->stack->size; i++) {
+    printf("%s", i == 0 ? "STACK: " : " | ");
+    kval_dump(ctx->stack->items[i]);
+  }
+  printf("\n");
   return true;
 }
