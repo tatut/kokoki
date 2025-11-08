@@ -25,10 +25,24 @@
 
 : fold                       (arr0 fn -- val)
   over 0 aget                (arr fn arr init)
-  swap len nip 1 dump        (arr fn init len 1)
+  swap len nip 1             (arr fn init len 1)
   do
     dup 5 pick swap aget nip (arr fn init len idx val)
-    3 move 4 pick call -rot  (arr fn val1 len idx)
+    3 move swap 4 pick call -rot  (arr fn val1 len idx)
+  loop nip nip ;
+
+: ?even 2 % 0 = ;
+: ?odd 2 % 1 = ;
+
+: filter                     (arr0 fn -- arr1)
+  over len nip 0 [] -rot
+  do                         (arr0 fn limit idx)
+    4 pick over aget nip dup (arr0 fn arr1 limit idx item item)
+    5 pick call dump
+    if
+      3 pick swap apush
+    then
+    drop
   loop nip nip ;
 
 
@@ -49,7 +63,7 @@
 
 : digit (ch -- num) 48 - ;
 : join-digits (n0 d -- n1)
-   10 * + ;
+   swap 10 * + ;
 
 # Convert string containing digits to an integer number
 : str->int (str -- num)

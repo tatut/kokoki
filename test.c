@@ -182,12 +182,6 @@ bool is_num(KVal v, double num) {
   return true;
 }
 
-#define age_check                                                              \
-  "[ [dup 10 <] \"child\""                                                     \
-  "  [dup 25 <] \"young adult\""                                               \
-  "  [dup 55 <] \"adult\""                                                     \
-  "  true       \"older adult\"] cond"
-
 // adapted from https://www.forth.com/starting-forth/4-conditional-if-then-statements/
 #define eggsize                                                                \
   ": eggsize ( n -- ) "                                                        \
@@ -244,28 +238,25 @@ void run_native_tests(KCtx *ctx) {
   TEST("do...loop", "5 0 do dup . loop", 0, is_printed("01234"));
   TEST("do...+loop", "25 0 do dup . 5 +loop", 0, is_printed("05101520"));
   TEST("begin...until", "5 begin dup . 1 - dup 0 = until drop", 0, is_printed("54321"));
-
-  //TEST("cond err", "42 cond", 1, is_error(top, "Cond requires an array with alternating condition/action pairs."));
-  TEST("cond1", "7 " age_check, 2, is_str(top, "child"));
-  TEST("cond2", "22 " age_check, 2, is_str(top, "young adult"));
-  TEST("cond3", "44 " age_check, 2, is_str(top, "adult"));
-  TEST("cond fallback", "123 " age_check, 2, is_str(top, "older adult"));
+  TEST("begin...while...repeat",
+       "0 begin dup . dup 10 < while \"<\" .  1 + repeat", 1,
+       is_num(top, 10) && is_printed("0<1<2<3<4<5<6<7<8<9<10"));
 
   TEST("slurp", "\".test/small.txt\" slurp", 1,
        is_str(top, "Korvatunturin Konkatenatiivinen Kieli\n"));
 
-  TEST("each", "[1 2 3] [2 *] each", 1,
+  TEST("each", ": dbl 2 * ; [1, 2, 3] 'dbl each", 1,
        is_num_arr(top, 3, (double[]){2, 4, 6}));
-  TEST("each2", ": inc 1 + ; [41 665] [inc] each", 1,
+  TEST("each2", ": inc 1 + ; [41, 665] 'inc each", 1,
        is_num_arr(top, 2, (double[]){42, 666}));
 
-  TEST("fold", "[1 2 3 0] [+] fold", 1, is_num(top, 6));
-  TEST("fold1", "[42] [+] fold", 1, is_num(top, 42));
+  TEST("fold", ": sum + ; [1, 2, 3, 0] 'sum fold", 1, is_num(top, 6));
+  TEST("fold1", ": sum + ; [42] 'sum fold", 1, is_num(top, 42));
   TEST("cat", "\"foo\" \"bar\" cat", 1, is_str(top, "foobar"));
   TEST("cat num 1", "\"foo\" 33 cat", 1, is_str(top, "foo!"));
   TEST("cat num 2", "33 \"foo\" cat", 1, is_str(top, "!foo"));
 
-  TEST("fold cat", "[\"foo\" \"bar\" \"baz\"] [cat] fold", 1,
+  TEST("fold cat", "[\"foo\", \"bar\", \"baz\"] 'cat fold", 1,
        is_str(top, "foobarbaz"));
 
   TEST("filter even", "[1 2 3 6 8 41] [2 % 0 =] filter", 1,

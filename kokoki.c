@@ -815,6 +815,12 @@ void execute(KCtx *ctx) {
       push = (KVal){.type = KT_CODE_ADDR, .data.address = addr};
       goto push_it;
     }
+    case OP_PUSH_NATIVE: {
+      uint16_t idx = NEXT();
+      idx = (idx << 8) + NEXT();
+      push = (KVal){.type = KT_NATIVE, .data.native = get_native_impl(idx)};
+      goto push_it;
+    }
     case OP_PUSH_NUMBER:
       memcpy(num.b, &ctx->bytecode->items[ctx->pc], 8);
       ctx->pc += 8;
@@ -1013,16 +1019,27 @@ void execute(KCtx *ctx) {
     }
     case OP_CALLS: {
       ASSERT_STACK(1);
-      double n = arr_pop(ctx->stack).data.address;
-      if (n < 0 || n >= ctx->bytecode->size) {
-        fprintf(stderr,
-                "Illegal call, can't jump outside bytecode range. Value %ld not "
-                "in (0 - %zu)\n",
-                (long)n, ctx->bytecode->size);
+      KVal ref = arr_pop(ctx->stack);
+      if (ref.type == KT_CODE_ADDR) {
+        double n = ref.data.address;
+        if (n < 0 || n >= ctx->bytecode->size) {
+          fprintf(stderr,
+                  "Illegal call, can't jump outside bytecode range. Value %ld not "
+                  "in (0 - %zu)\n",
+                  (long)n, ctx->bytecode->size);
+          return;
+        }
+        ARR_PUSH(ctx->return_addr, ctx->pc);
+        ctx->pc = (uint32_t)n;
+      } else if (ref.type == KT_NATIVE) {
+        ref.data.native(ctx);
+      } else {
+        fprintf(
+            stderr,
+            "Illegal call, value is not a bytecode address or a native fn: ");
+        kval_dump(stderr, ref);
         return;
       }
-      ARR_PUSH(ctx->return_addr, ctx->pc);
-      ctx->pc = (uint32_t)n;
       break;
     }
     case OP_JMP_TRUE:
@@ -1213,6 +1230,9 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
       if (is_name(token, "until") || is_name(token, "again") ||
           is_name(token, "while"))
         goto done;
+    case C_BEGIN_WHILE:
+      if (is_name(token, "repeat"))
+        goto done;
     }
 
     if (token.type == KT_EOF) {
@@ -1263,12 +1283,21 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
         emit(ctx, addr >> 8);
         emit(ctx, addr);
       } else {
-        fprintf(
-            stderr,
-            "Compilation failed, name \"%.*s\" is not a known defined word\n",
-            (int)token.data.string.len, token.data.string.data);
-        kval_dump(stderr, val);
-        return;
+        char name[128];
+        snprintf(name, 128, "%.*s", (int)token.data.string.len, token.data.string.data);
+        KNative native;
+        if (get_native_fn(name, &native)) {
+          emit(ctx, OP_PUSH_NATIVE);
+          emit(ctx, native.index >> 8);
+          emit(ctx, native.index);
+        } else {
+          fprintf(
+                  stderr,
+                  "Compilation failed, name \"%.*s\" is not a known defined word or native\n",
+                  (int)token.data.string.len, token.data.string.data);
+          kval_dump(stderr, val);
+          return;
+        }
       }
       break;
     }
@@ -1377,8 +1406,36 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
           emit(ctx, loop_start_pos >> 16);
           emit(ctx, loop_start_pos >> 8);
           emit(ctx, loop_start_pos);
+        } else if (is_name(in->last_token, "while")) {
+          size_t while_check_pos = ctx->bytecode->size;
+          emit(ctx, OP_JMP_FALSE);
+          emit_bytes(ctx, 3, (uint8_t[]){0, 0, 0}); // reserve space for addr
+          compile(ctx, in, C_BEGIN_WHILE);
+          if (!is_name(in->last_token, "repeat")) {
+            fprintf(stderr, "Compilation failed, begin ... while ... must end "
+                            "in 'repeat', got: ");
+            kval_dump(stderr, in->last_token);
+            return;
+          }
 
+          // emit jump back to start
+          emit(ctx, OP_JMP);
+          emit(ctx, loop_start_pos >> 16);
+          emit(ctx, loop_start_pos >> 8);
+          emit(ctx, loop_start_pos);
+          size_t after_loop_pos = ctx->bytecode->size;
+
+          // patch in the after loop position
+          ctx->bytecode->items[while_check_pos + 1] = after_loop_pos >> 16;
+          ctx->bytecode->items[while_check_pos + 2] = after_loop_pos >> 8;
+          ctx->bytecode->items[while_check_pos + 3] = after_loop_pos;
+
+        } else {
+          fprintf(stderr, "Compilation failed, unexpected end to begin ... block");
+          kval_dump(stderr, in->last_token);
+          return;
         }
+
         break;
       }
 

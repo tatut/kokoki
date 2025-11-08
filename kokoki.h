@@ -19,6 +19,7 @@ typedef enum KOp {
   OP_PUSH_INT8,  // integer between -128 and 127, next byte is the value
   OP_PUSH_INT16, //  integer between -32768 and 32767, next 2 bytes is the value
   OP_PUSH_ADDR,  // push a 3byte program address to stack
+  OP_PUSH_NATIVE, // push 2byte reference to native C function
   OP_PUSH_NUMBER, // a number, next 8 bytes is the value
   OP_PUSH_STRING, // a short string, next byte is len and the bytes after that
   OP_PUSH_STRING_LONG, // long string, next 4 bytes is len, and the bytes after
