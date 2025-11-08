@@ -198,7 +198,7 @@ bool kval_eq(KVal a, KVal b) {
   }
 }
 
-void kval_dump(KVal v);
+void kval_dump(FILE *out, KVal v);
 
 void hm_put(KHashMap *hm, KVal key, KVal value) {
   uint32_t hash = kval_hash(key);
@@ -264,6 +264,7 @@ KCtx *kctx_new() {
   ctx->stack = tgc_calloc(&gc, 1, sizeof(KArray));
   ctx->bytecode = tgc_calloc(&gc, 1, sizeof(KByteCode));
   ctx->return_addr = tgc_calloc(&gc, 1, sizeof(KAddrStack));
+  ctx->out = stdout;
   return ctx;
 }
 
@@ -566,114 +567,114 @@ KVal read(KReader *in) {
 
 }
 
-void kval_dump(KVal v) {
+void kval_dump(FILE *out, KVal v) {
   switch (v.type) {
   case KT_NIL:
-    col(PURPLE);
-    printf("nil");
+    col(out, PURPLE);
+    fprintf(out, "nil");
     break;
   case KT_TRUE:
-    col(RED);
-    printf("true");
+    col(out, RED);
+    fprintf(out, "true");
     break;
   case KT_FALSE:
-    col(RED);
-    printf("false");
+    col(out, RED);
+    fprintf(out, "false");
     break;
   case KT_STRING:
-    col(GREEN);
-    printf("%.*s", (int) v.data.string.len, v.data.string.data);
+    col(out, GREEN);
+    fprintf(out, "%.*s", (int) v.data.string.len, v.data.string.data);
     break;
   case KT_NAME:
-    printf("%.*s", (int)v.data.string.len, v.data.string.data);
+    fprintf(out, "%.*s", (int)v.data.string.len, v.data.string.data);
     break;
   case KT_REF_NAME:
-    printf("@%.*s", (int)v.data.string.len, v.data.string.data);
+    fprintf(out, "@%.*s", (int)v.data.string.len, v.data.string.data);
     break;
   case KT_REF_VALUE:
-    printf("#<Ref: ");
-    kval_dump(v.data.ref->value);
-    printf(">");
+    fprintf(out, "#<Ref: ");
+    kval_dump(out, v.data.ref->value);
+    fprintf(out, ">");
     break;
   case KT_NUMBER:
-    col(YELLOW);
+    col(out, YELLOW);
     if ((v.data.number - (long)v.data.number) == 0.0) {
-      printf("%ld", (long)v.data.number);
+      fprintf(out, "%ld", (long)v.data.number);
     } else {
-      printf("%f", v.data.number);
+      fprintf(out, "%f", v.data.number);
     }
     break;
 
   case KT_ARRAY_START:
-    printf("[ ");
+    fprintf(out, "[ ");
     break;
   case KT_ARRAY_END:
-    printf(" ]");
+    fprintf(out, " ]");
     break;
 
   case KT_ARRAY:
-    printf("[");
+    fprintf(out, "[");
     for (size_t i = 0; i < v.data.array->size; i++) {
       if (i > 0)
-        printf(" ");
-      kval_dump(v.data.array->items[i]);
+        fprintf(out, " ");
+      kval_dump(out, v.data.array->items[i]);
     }
-    printf("]");
+    fprintf(out, "]");
     break;
 
   case KT_DEF_START:
-    printf(": ");
+    fprintf(out, ": ");
     break;
   case KT_DEF_END:
-    printf(" ; ");
+    fprintf(out, " ; ");
     break;
 
   case KT_BLOCK:
-    printf("{");
+    fprintf(out, "{");
     for (size_t i = 0; i < v.data.array->size; i++) {
       if (i > 0)
-        printf(" ");
-      kval_dump(v.data.array->items[i]);
+        fprintf(out, " ");
+      kval_dump(out, v.data.array->items[i]);
     }
-    printf("}");
+    fprintf(out, "}");
     break;
 
   case KT_HASHMAP_START:
-    printf("{ ");
+    fprintf(out, "{ ");
     break;
   case KT_HASHMAP_END:
-    printf(" }");
+    fprintf(out, " }");
     break;
   case KT_NATIVE:
-    printf("#<native function %p>", v.data.native);
+    fprintf(out, "#<native function %p>", v.data.native);
     break;
   case KT_HASHMAP:
-    printf("#<hashmap fixme>");
+    fprintf(out, "#<hashmap fixme>");
     break;
   case KT_ERROR:
-    printf("#<ERROR: %.*s>", (int)v.data.string.len, v.data.string.data);
+    fprintf(out, "#<ERROR: %.*s>", (int)v.data.string.len, v.data.string.data);
     break;
   case KT_EOF:
-    printf("#<EOF>");
+    fprintf(out, "#<EOF>");
     break;
 
   case KT_CODE_ADDR:
-    printf("#<compiled code @ %d>", v.data.address);
+    fprintf(out, "#<compiled code @ %d>", v.data.address);
     break;
   }
-  reset();
+  reset(out);
 }
 
 void debug_stack(KCtx *ctx) {
   for (size_t i = 0; i < ctx->stack->size; i++) {
-   printf(" ");
-   kval_dump(ctx->stack->items[i]);
+    if(i) printf(" | ");
+    kval_dump(ctx->out, ctx->stack->items[i]);
   }
 }
 
 void debug_exec(KCtx *ctx, KVal v) {
   printf("EXECUTING %d: ", v.type);
-  kval_dump(v);
+  kval_dump(ctx->out, v);
   printf(" STACK:");
   debug_stack(ctx);
   printf("\n");
@@ -761,7 +762,7 @@ void execute(KCtx *ctx) {
   for(;;) {
     uint8_t op;
     op = NEXT();
-    printf("[PC:%u] OP %d\n", ctx->pc - 1, op);
+    //printf("[PC:%u] OP %d\n", ctx->pc - 1, op);
     KVal push;
     switch (op) {
     case OP_END:
@@ -796,7 +797,6 @@ void execute(KCtx *ctx) {
       push.data.string.data = tgc_alloc(&gc, push.data.string.len);
       memcpy(push.data.string.data, &ctx->bytecode->items[ctx->pc], push.data.string.len);
       ctx->pc += push.data.string.len;
-      printf("pushing short string: \"%.*s\"\n", (int) push.data.string.len, push.data.string.data);
       goto push_it;
     case OP_PUSH_STRING_LONG:
       memcpy(u32.b, &ctx->bytecode->items[ctx->pc], 4);
@@ -893,6 +893,11 @@ void execute(KCtx *ctx) {
       goto push_it;
     }
 
+    case OP_INC: {
+      ASSERT_STACK(1);
+      ctx->stack->items[ctx->stack->size - 1].data.number += 1;
+      break;
+    }
       /* Basic stack manipulation */
     case OP_DUP:
       ASSERT_STACK(1);
@@ -970,29 +975,43 @@ void execute(KCtx *ctx) {
       addr = (addr << 8) + NEXT();
       addr = (addr << 8) + NEXT();
       if(op == OP_CALL) {
-        printf("calling to %d\n", addr);
+        //printf("calling to %d\n", addr);
         ARR_PUSH(ctx->return_addr, ctx->pc);
       }
       ctx->pc = addr;
+      break;
+    }
+    case OP_CALLS: {
+      ASSERT_STACK(1);
+      double n = arr_pop(ctx->stack).data.number;
+      if (n < 0 || n >= ctx->bytecode->size) {
+        fprintf(stderr,
+                "Illegal call, can't jump outside bytecode range. Value %d not "
+                "in (0 - %zu)\n",
+                n, ctx->bytecode->size);
+        return;
+      }
+      ARR_PUSH(ctx->return_addr, ctx->pc);
+      ctx->pc = (uint32_t)n;
       break;
     }
     case OP_JMP_TRUE:
     case OP_JMP_FALSE: {
       ASSERT_STACK(1);
       KVal cond = arr_pop(ctx->stack);
-      printf("check if ");
-      kval_dump(cond);
-      printf(" %s ?\n", op == OP_JMP_TRUE ? "truthy" : "falsy");
+      //printf("check if ");
+      //kval_dump(cond);
+      //printf(" %s ?\n", op == OP_JMP_TRUE ? "truthy" : "falsy");
       bool f = falsy(cond);
       if((op == OP_JMP_TRUE && !f) || (op == OP_JMP_FALSE && f)) {
         uint32_t addr = NEXT();
         addr = (addr << 8) + NEXT();
         addr = (addr << 8) + NEXT();
-        printf("  jumping to %d!\n", addr);
+        //printf("  jumping to %d!\n", addr);
         ctx->pc = addr;
       } else {
         ctx->pc += 3;
-        printf(" not jumping, pc: %u\n", ctx->pc);
+        //printf(" not jumping, pc: %u\n", ctx->pc);
 
       }
       break;
@@ -1009,7 +1028,7 @@ void execute(KCtx *ctx) {
       break;
     }
     case OP_PRINT:
-      kval_dump(arr_pop(ctx->stack));
+      kval_dump(ctx->out, arr_pop(ctx->stack));
       break;
     default:
       fprintf(stderr, "Unknown bytecode op: %d\n", op);
@@ -1101,7 +1120,8 @@ typedef enum CompileMode {
   C_ARRAY,      // compiling array literal item, wait for comma or ']'
   C_HASHMAP,    // compiling hashmap literal item, wait for comma or '}'
   C_IF,         // compiling IF, waiting for ELSE or THEN
-  C_IF_ELSE     // compiling after IF ... ELSE, waiting for THEN
+  C_IF_ELSE,    // compiling after IF ... ELSE, waiting for THEN
+  C_DO,         // compiling DO loop, end with LOOP or +LOOP
 } CompileMode;
 
 
@@ -1153,6 +1173,10 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
       if (is_name(token, "then"))
         goto done;
       break;
+    case C_DO:
+      if (is_name(token, "+loop") || is_name(token, "loop"))
+        goto done;
+      break;
     }
     if (token.type == KT_EOF) {
       // EOF should only come at toplevel, otherwise it is unexpected
@@ -1195,7 +1219,7 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
       /* Check special control structures */
 
       if (is_name(token, "if")) {
-        printf("compile if, current depth: %d\n", compile_depth);
+        //printf("compile if, current depth: %d\n", compile_depth);
         // next up is either else block or then block, depending if ending
         // token is "else" or "then", reserve space for a jump
         size_t before_pos = ctx->bytecode->size;
@@ -1205,7 +1229,7 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
         if (is_name(in->last_token, "then")) {
           // jmp over the then block if false
           size_t after_pos = ctx->bytecode->size;
-          printf("before %zu compile jmp false to %zu\n", before_pos, after_pos);
+          //printf("before %zu compile jmp false to %zu\n", before_pos, after_pos);
           ctx->bytecode->items[before_pos + 0] = OP_JMP_FALSE;
           ctx->bytecode->items[before_pos + 1] = after_pos >> 16;
           ctx->bytecode->items[before_pos + 2] = after_pos >> 8;
@@ -1222,7 +1246,7 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
                     "Compilation failed: expected 'then' to end if "
                     "statement, got: %s\n",
                     TYPE_NAME[in->last_token.type]);
-            kval_dump(in->last_token);
+            kval_dump(stderr, in->last_token);
             printf("\n");
             return;
           }
@@ -1234,7 +1258,7 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
 
           // after then block, jump over else block
           uint32_t after_else_pos = ctx->bytecode->size;
-          printf(" after else pos %u\n", after_else_pos);
+          //printf(" after else pos %u\n", after_else_pos);
           ctx->bytecode->items[after_then_pos + 0] = OP_JMP;
           ctx->bytecode->items[after_then_pos + 1] = after_else_pos >> 16;
           ctx->bytecode->items[after_then_pos + 2] = after_else_pos >> 8;
@@ -1246,6 +1270,36 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
           return;
         }
 
+        break;
+      }
+
+      if (is_name(token, "do")) {
+        // compile DO ... LOOP
+        size_t do_start_pos = ctx->bytecode->size;
+        compile(ctx, in, C_DO);
+        if (is_name(in->last_token, "loop")) {
+          // increment index by 1
+          emit(ctx, OP_INC);
+        } else if (is_name(in->last_token, "+loop")) {
+          // increment index by N
+          emit(ctx, OP_PLUS);
+        } else {
+          fprintf(stderr,
+                  "Compilation of do ... loop failed, unexpected token: %s\n",
+                  TYPE_NAME[in->last_token.type]);
+          return;
+        }
+        // compile check if (limit idx <=) then jump back to top
+        emit(ctx, OP_OVER); // copy limit
+        emit(ctx, OP_OVER); // copy index
+        emit(ctx, OP_GT);
+        emit(ctx, OP_JMP_TRUE); // jump back if limit > index
+        emit(ctx, do_start_pos >> 16);
+        emit(ctx, do_start_pos >> 8);
+        emit(ctx, do_start_pos);
+        // drop index and limit
+        emit(ctx, OP_DROP);
+        emit(ctx, OP_DROP);
         break;
       }
 
@@ -1299,7 +1353,7 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
       printf("\n");*/
       if (name.type != KT_NAME) {
         fprintf(stderr, "Compilation failed, expected name for definition.");
-        kval_dump(name);
+        kval_dump(stderr, name);
         return;
       }
       compile(ctx, in, C_DEFINITION);
@@ -1333,7 +1387,7 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
               "FIXME: compilation failed on line %d, col %d, token type: %s\n",
               in->line, in->col,
               TYPE_NAME[token.type]);
-      kval_dump(token);
+      kval_dump(stderr, token);
     }
     token = read(in);
   }
@@ -1752,6 +1806,25 @@ void native_read(KCtx *ctx) {
   OUT(read(&in));
 }
 
+bool kokoki_eval(KCtx *ctx, const char *source);
+void native_eval(KCtx *ctx) {
+  IN(source, KT_STRING);
+  char *src = tgc_alloc(&gc, source.data.string.len + 1);
+  src[source.data.string.len] = 0;
+  memcpy(src, source.data.string.data, source.data.string.len);
+
+  size_t pc = ctx->pc;
+  ctx->pc = ctx->bytecode->size;
+  kokoki_eval(ctx, src);
+  ctx->pc = pc;
+  tgc_free(&gc, src);
+}
+
+void native_use(KCtx *ctx) {
+  native_slurp(ctx);
+  native_eval(ctx);
+}
+
 KNative native[] = {
     {.name = "+", .op = OP_PLUS},
     {.name = "-", .op = OP_MINUS},
@@ -1778,23 +1851,25 @@ KNative native[] = {
     {.name = "pick", .op = OP_PICKN},
     {.name = ".", .op = OP_PRINT},
     {.name = "apush", .op = OP_APUSH},
-    {.name = "slurp",   .fn = native_slurp},
-    {.name = "nl",      .fn = native_nl},
-    {.name = "cat",     .fn = native_cat},
-    {.name = "sort",    .fn = native_sort},
+    {.name = "call", .op = OP_CALLS},
+    {.name = "slurp", .fn = native_slurp},
+    {.name = "nl", .fn = native_nl},
+    {.name = "cat", .fn = native_cat},
+    {.name = "sort", .fn = native_sort},
     {.name = "compare", .fn = native_compare},
-    {.name = "len",     .fn = native_len},
-    {.name = "aget",    .fn = native_aget},
+    {.name = "len", .fn = native_len},
+    {.name = "aget", .fn = native_aget},
     {.name = "reverse", .fn = native_reverse},
-    {.name = "aset",    .fn = native_aset},
-    {.name = "adel",    .fn = native_adel},
-    {.name = "slice",   .fn = native_slice},
-    {.name = "?",       .fn = native_deref},
-    {.name = "!",       .fn = native_reset},
-    {.name = "copy",    .fn = native_copy},
-    {.name = "dump",    .fn = native_dump},
-    {.name = "read",    .fn = native_read},
-
+    {.name = "aset", .fn = native_aset},
+    {.name = "adel", .fn = native_adel},
+    {.name = "slice", .fn = native_slice},
+    {.name = "?", .fn = native_deref},
+    {.name = "!", .fn = native_reset},
+    {.name = "copy", .fn = native_copy},
+    {.name = "dump", .fn = native_dump},
+    {.name = "read", .fn = native_read},
+    {.name = "eval", .fn = native_eval},
+    {.name = "use", .fn = native_use},
 };
 
 void (*get_native_impl(uint16_t index))(KCtx *) {
@@ -1816,104 +1891,6 @@ bool get_native_fn(const char *name, KNative *nat) {
 
 /* | | |                             | | | *
  * v v v CHECK ALL BELOW FOR REMOVAL v v v */
-
-void native_print(KCtx *ctx) {
-  kval_dump(arr_pop(ctx->stack));
-}
-
-void native_cond(KCtx *ctx) {
-  KVal cond = arr_pop(ctx->stack);
-  if (cond.type != KT_ARRAY || cond.data.array->size % 2) {
-    KVal e;
-    err(e, "Cond requires an array with alternating condition/action pairs.");
-    arr_push(ctx->stack, e);
-  } else {
-    for (size_t i = 0; i < cond.data.array->size - 1; i++) {
-      KVal _if = cond.data.array->items[i * 2 + 0];
-      if(_if.type == KT_ARRAY) _if.type = KT_BLOCK;
-      KVal _then = cond.data.array->items[i * 2 + 1];
-      exec(ctx, _if);
-      KVal result = arr_pop(ctx->stack);
-      //printf("IF ");
-      //kval_dump(_if);
-      //printf(" THEN ");
-      //kval_dump(_then);
-      //printf(" ==> ");
-      //kval_dump(result);
-      //printf("\n");
-      if (!falsy(result)) {
-        // we are done, run action and return
-        if(_then.type == KT_ARRAY) _then.type = KT_BLOCK;
-        exec(ctx, _then);
-        return;
-      }
-    }
-  }
-}
-
-/* Copy Nth value from top and push it to top */
-void native_pick(KCtx *ctx) {
-  IN(num, KT_NUMBER);
-  KVal error;
-  size_t sz = ctx->stack->size;
-  size_t idx = (size_t) num.data.number;
-  if (sz <= idx) {
-    err(error, "Can't pick item %zu from stack that has size %zu", idx, sz);
-    OUT(error);
-  } else {
-    OUT(ctx->stack->items[sz - 1 - idx]);
-  }
-}
-
-/* Move Nth value from top and push it to top */
-void native_move(KCtx *ctx) {
-  IN(num, KT_NUMBER);
-  KVal error;
-  size_t sz = ctx->stack->size;
-  size_t idx = (size_t) num.data.number;
-  if (sz <= idx) {
-    err(error, "Can't move item %zu from stack that has size %zu", idx, sz);
-    OUT(error);
-  } else {
-    KVal item = arr_remove_nth(ctx->stack, sz - 1 - idx);
-    OUT(item);
-  }
-}
-
-void native_dup(KCtx *ctx) {
-  KVal v = arr_pop(ctx->stack);
-  arr_push(ctx->stack, v);
-  arr_push(ctx->stack, v);
-}
-void native_rot(KCtx *ctx) {
-  // rotate 3rd item to top
-  // (a b c -- b c a)
-  IN_ANY(c);
-  IN_ANY(b);
-  IN_ANY(a);
-  OUT(b);
-  OUT(c);
-  OUT(a);
-}
-
-void native_swap(KCtx *ctx) {
-  KVal b = arr_pop(ctx->stack);
-  KVal a = arr_pop(ctx->stack);
-  arr_push(ctx->stack, b);
-  arr_push(ctx->stack, a);
-}
-void native_drop(KCtx *ctx) { arr_pop(ctx->stack); }
-
-void native_exec(KCtx *ctx) {
-  KVal arr = arr_pop(ctx->stack);
-  if (arr.type == KT_ARRAY) {
-    for (size_t i = 0; i < arr.data.array->size; i++) {
-      exec(ctx, arr.data.array->items[i]);
-    }
-  } else {
-    exec(ctx, arr);
-  }
-}
 
 
 /* Takes 2 values: an array to process and code (array or word name) to run on each item.
@@ -2104,20 +2081,7 @@ void native_swap_ref(KCtx *ctx) { native_swap_ref_value(ctx, false); }
  */
 void native_swap_ref_cur(KCtx *ctx) { native_swap_ref_value(ctx, true); }
 
-bool kokoki_eval(KCtx *ctx, const char *source);
-void native_eval(KCtx *ctx) {
-  IN(source, KT_STRING);
-  char *src = tgc_alloc(&gc, source.data.string.len + 1);
-  src[source.data.string.len] = 0;
-  memcpy(src, source.data.string.data, source.data.string.len);
-  kokoki_eval(ctx, src);
-  tgc_free(&gc, src);
-}
 
-void native_use(KCtx *ctx) {
-  native_slurp(ctx);
-  native_eval(ctx);
-}
 
 
 
@@ -2155,15 +2119,10 @@ bool kokoki_eval(KCtx *ctx, const char *source) {
 
   KReader in = (KReader){.at = src, .end = end, .line = 1, .col = 1};
   size_t pc = ctx->bytecode->size;
-  //printf("compile more at pos: %zu\n", pc);
+  printf("compile more at pos: %zu\n", pc);
   compile(ctx, &in, C_TOPLEVEL);
-  //printf("pc now at: %zu (size: %zu)\n", ctx->pc, ctx->bytecode->size);
+  printf("pc now at: %zu (size: %zu)\n", ctx->pc, ctx->bytecode->size);
   execute(ctx);
 
-  for (size_t i = 0; i < ctx->stack->size; i++) {
-    printf("%s", i == 0 ? "STACK: " : " | ");
-    kval_dump(ctx->stack->items[i]);
-  }
-  printf("\n");
   return true;
 }

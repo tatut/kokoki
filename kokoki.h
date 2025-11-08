@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdio.h>
 
 /* Bytecode opcodes */
 typedef enum KOp {
@@ -44,6 +45,9 @@ typedef enum KOp {
   OP_AND, // and two truth values
   OP_OR,  // or two truth values
 
+  /* Common operations */
+  OP_INC,  // increment top value by 1
+
   /* Basic stack manipulation words.
    */
   OP_DUP,  // duplicate top of stack
@@ -71,8 +75,8 @@ typedef enum KOp {
   OP_JMP,       // unconditional jump, next 3 bytes is the address
   OP_JMP_TRUE,  // conditional jump if top of stack is truthy
   OP_JMP_FALSE, // conditional jump if top of stack is falsy
-  OP_CALL, // call a word (next 3 bytes is the address), pushes current pos into
-           // return stack
+  OP_CALL,      // call a word (next 3 bytes is the address), pushes current pos into  return stack
+  OP_CALLS,     // call a word whose address is in the stack
   OP_RETURN, // return to position in top of return stack
   OP_INVOKE, // invoke a native C implemented word (2 byte index)
 
@@ -216,6 +220,9 @@ typedef struct KCtx {
 
   // return address from any calls
   KAddrStack *return_addr;
+
+  // current output stream (defaults to stdout)
+  FILE *out;
 } KCtx;
 
 /**
@@ -234,7 +241,7 @@ bool kokoki_eval(KCtx *ctx, const char *source);
  */
 void kokoki_native(KCtx * ctx, const char *name, void (*native)(KCtx *));
 
-void kval_dump(KVal v);
+void kval_dump(FILE *out, KVal v);
 
 void arr_push(KArray *arr, KVal val);
 KVal arr_pop(KArray *arr);

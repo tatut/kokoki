@@ -36,6 +36,19 @@ const char *background[] = {
 
 const char *_reset = "\e[0m";
 
-void col(ANSI_COLOR c) { printf("%s", colors[c]); }
-void bg(ANSI_COLOR c) { printf("%s", background[c]); }
-void reset() { printf("%s", _reset); }
+void col(FILE *out, ANSI_COLOR c) {
+  if(out == stdout) {
+    printf("%s", colors[c]);
+  }
+}
+
+void bg(FILE *out, ANSI_COLOR c) {
+  if(out == stdout) {
+    printf("%s", background[c]);
+  }
+}
+void reset(FILE *out) {
+  if(out == stdout) {
+    printf("%s", _reset);
+  }
+}

@@ -1,11 +1,11 @@
 # FizzBuzz: print numbers 1 to 100, but if the number is divisible by
 # 3 print Fizz and if the number is divisible by 5 print Buzz. If the
 # number is divisible by both, print FizzBuzz.
-0
-[1 + dup # increment number
- [ [ dup 15 % 0 = ] "FizzBuzz"
-   [ dup 3 % 0 = ]  "Fizz"
-   [ dup 5 % 0 = ]  "Buzz"
-   true             dup ] cond
- . nl drop # print string or number
- ] 100 times
+101 1 do
+  dup 15 % 0 = if "FizzBuzz" else
+  dup 3 % 0 =  if "Fizz"     else
+  dup 5 % 0 =  if "Buzz"     else
+    dup
+  then then then
+  . nl
+loop

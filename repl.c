@@ -23,6 +23,7 @@ void repl(KCtx *ctx, void *user) {
 }
 
 void run_file(KCtx *ctx, void* file) {
+
   snprintf(line, MAX_LINE, "\"%s\" slurp eval", (char*) file);
   kokoki_eval(ctx, line);
 }

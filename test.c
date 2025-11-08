@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -11,6 +12,9 @@ static int fails = 0;
 static int success = 0;
 KVal top, bot;
 
+#define MAX_PRINTED_SIZE 4096
+char printed[MAX_PRINTED_SIZE];
+
 #define IS(check_code)                                                         \
   if (!(check_code)) {                                                         \
     fprintf(stderr,                                                            \
@@ -23,11 +27,17 @@ KVal top, bot;
   }
 
 
+void capture_output(KCtx *ctx) {
+  ctx->out = fmemopen(printed, MAX_PRINTED_SIZE, "w");
+}
 
+void close_output(KCtx *ctx) { fclose(ctx->out); }
 
 #define TEST(name, src, expected_stack_size, check_code)                       \
   {                                                                            \
+    capture_output(ctx);                                                       \
     kokoki_eval(ctx, src);                                                     \
+    close_output(ctx);                                                         \
     fails_before = fails;                                                      \
     if (ctx->stack->size != (expected_stack_size)) {                           \
       fprintf(stderr,                                                          \
@@ -52,12 +62,13 @@ KVal top, bot;
       printf("✅ ");                                                           \
       success++;                                                               \
     } else {                                                                   \
-      printf("STACK:");                                                        \
+      fprintf(stderr, "STACK:");                                               \
       for (size_t i = 0; i < ctx->stack->size; i++) {                          \
-        printf(" ");                                                           \
-        kval_dump(ctx->stack->items[i]);                                       \
+        fprintf(stderr, " ");                                                  \
+        kval_dump(stderr, ctx->stack->items[i]);                               \
       }                                                                        \
-      printf("\n");                                                            \
+      fprintf(stderr, "\n");                                                   \
+      fflush(stderr);                                                          \
     }                                                                          \
     fflush(stdout);                                                            \
     ctx->stack->size = 0;                                                      \
@@ -66,18 +77,34 @@ KVal top, bot;
 
 
 
+
+
 bool is_error(KVal v, const char *err) {
   if (v.type != KT_ERROR) {
-    printf(" expected error, got: ");
-    kval_dump(v);
-    printf("\n");
+    fprintf(stderr, " expected error, got: ");
+    kval_dump(stderr, v);
+    fprintf(stderr, "\n");
     return false;
   }
   if (strlen(err) != v.data.string.len ||
       memcmp(err,v.data.string.data, v.data.string.len) != 0) {
-    printf(" error with text\n"
-           " expected: %s\n"
-           "   actual: %.*s\n", err, (int)v.data.string.len, v.data.string.data);
+    fprintf(stderr,
+            " error with text\n"
+            " expected: %s\n"
+            "   actual: %.*s\n", err, (int)v.data.string.len, v.data.string.data);
+    return false;
+  }
+  return true;
+}
+
+// check that printed output of the test matches given C string
+bool is_printed(const char *str) {
+  if (strcmp(printed, str) != 0) {
+    fprintf(stderr,
+            " expected printed text does not match output\n"
+            " expected: %s\n"
+            "   actual: %s\n",
+            str, printed);
     return false;
   }
   return true;
@@ -92,10 +119,10 @@ bool is_str(KVal v, const char *str) {
   return true;
 
  not_string :
-  printf(" expected string\n");
+  fprintf(stderr, " expected string\n");
   return false;
  not_the_same:
-   printf(" expected: %s\n"
+  fprintf(stderr, " expected: %s\n"
           "   actual: %.*s\n",
           str,
           (int)v.data.string.len, v.data.string.data);
@@ -109,18 +136,18 @@ bool is_num_arr(KVal v, size_t len, double *nums) {
     goto size_mismatch;
   for (size_t i = 0; i < len; i++) {
     if (v.data.array->items[i].data.number != nums[i]) {
-      printf("  [%zu] expected %f, got %f\n", i, nums[i],
-             v.data.array->items[i].data.number);
+      fprintf(stderr, "  [%zu] expected %f, got %f\n", i, nums[i],
+              v.data.array->items[i].data.number);
       return false;
     }
   }
   return true;
  not_array:
-  printf(" expected array\n");
+  fprintf(stderr, " expected array\n");
   return false;
 size_mismatch:
-  printf(" expected array of length %zu, got length %zu\n", len,
-         v.data.array->size);
+  fprintf(stderr, " expected array of length %zu, got length %zu\n", len,
+          v.data.array->size);
   return false;
 }
 
@@ -135,21 +162,21 @@ bool is_str_arr(KVal v, size_t len, const char **strs) {
   }
   return true;
 not_array:
-  printf(" expected array of strings\n");
+  fprintf(stderr, " expected array of strings\n");
   return false;
 size_mismatch:
-  printf(" expected array of length %zu, got length %zu\n", len,
-         v.data.array->size);
+  fprintf(stderr, " expected array of length %zu, got length %zu\n", len,
+          v.data.array->size);
   return false;
 }
 
 bool is_num(KVal v, double num) {
   if (v.type != KT_NUMBER) {
-    printf(" expected number\n");
+    fprintf(stderr, " expected number\n");
     return false;
   }
   if (v.data.number != num) {
-    printf(" expected %f, got %f\n", num, v.data.number);
+    fprintf(stderr, " expected %f, got %f\n", num, v.data.number);
     return false;
   }
   return true;
@@ -214,6 +241,8 @@ void run_native_tests(KCtx *ctx) {
 
   TEST("eggsize", eggsize " 25 eggsize", 1, is_str(top, "large"));
 
+  TEST("do...loop", "5 0 do dup . loop", 0, is_printed("01234"));
+  TEST("do...+loop", "25 0 do dup . 5 +loop", 0, is_printed("05101520"));
 
   //TEST("cond err", "42 cond", 1, is_error(top, "Cond requires an array with alternating condition/action pairs."));
   TEST("cond1", "7 " age_check, 2, is_str(top, "child"));
