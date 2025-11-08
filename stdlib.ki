@@ -1,21 +1,13 @@
 # Kokoki standard library
 
 : dup2 (a b -- a1 a2 b1 b2)
-  swap dup rot dup rot swap dump  ;
-
-# drop next to top element
-: nip (a b -- b)
-  swap drop ;
-
-# copy next to top element
-: over (a b -- a b a)
-  swap dup rot swap ;
+  swap dup rot dup rot swap ;
 
 : -rot (a b c -- c a b)
   rot rot ;
 
 : ?dup (a -- a a) # if a is truthy
-  [] copy over apush over apush cond ;
+  dup if dup then ;
 
 : 2dup (a b -- a b a b)
   over over ;
@@ -23,43 +15,56 @@
 : 2nip (a b c d -- c d)
   rot drop rot drop ;
 
-### : 2tuck (a b c d -- c d a b c d)
-###   2dup [5 move] 4 times ;
-###
-### : 2over (a b c d -- a b cd a b)
-###   [3 pick] 2 times ;
-###
-### : 2rot (a b c d e f -- c d e f a b)
-###   [5 move] 2 times ;
-###
-### : 2swap (a b c d -- c d a b)
-###   [3 move] 2 times ;
-###
-### : 2drop (a b --)
-###   drop drop ;
-###
-### # Convert string containing digits to an integer number
-### : str->int (str -- num)
-###   [48 -] each
-###   [swap 10 * +] fold ;
-###
-### # Turn n top items in stack to an array
-### # eg. 1 2 2 array => [1 2]
-### : array (n-items* n -- arr)
-###   [] copy swap [swap apush] swap times reverse ;
-###
-### # Implement if with the primitive cond
-### # use like:
-### # 1 2 < ["one is less than two".] if
-### : if (bool code -- )
-###   swap [] copy swap apush swap apush cond ;
-###
-### # Like if, but also takes an else block
-### : if-else (bool then else -- )
-###   swap rot [] copy swap apush swap apush
-###   true apush swap apush
-###   cond ;
-###
+: each                       (arr0 fn -- arr1)
+  over len nip 0             (arr0 fn len idx)
+  do
+    dup 4 pick swap aget     (arr fn len idx arr item0)
+    4 pick call              (arr fn len idx arr item1)
+    2 pick swap aset drop    (arr fn len idx)
+  loop drop ;
+
+: fold                       (arr0 fn -- val)
+  over 0 aget                (arr fn arr init)
+  swap len nip 1 dump        (arr fn init len 1)
+  do
+    dup 5 pick swap aget nip (arr fn init len idx val)
+    3 move 4 pick call -rot  (arr fn val1 len idx)
+  loop nip nip ;
+
+
+: 2tuck (a b c d -- c d a b c d)
+  2dup 5 move 5 move 5 move 5 move ;
+
+: 2over (a b c d -- a b cd a b)
+  3 pick 3 pick ;
+
+: 2rot (a b c d e f -- c d e f a b)
+  5 move 5 move ;
+
+: 2swap (a b c d -- c d a b)
+  3 move 3 move ;
+
+: 2drop (a b --)
+  drop drop ;
+
+: digit (ch -- num) 48 - ;
+: join-digits (n0 d -- n1)
+   10 * + ;
+
+# Convert string containing digits to an integer number
+: str->int (str -- num)
+  'digit each
+  'join-digits fold ;
+
+# Turn n top items in stack to an array
+# eg. 1 2 2 array => [1 2]
+: array (n-items* n -- arr)
+  0 [] -rot
+  do (... arr limit 0)
+    2 pick 2 pick 2 pick - 3 + move apush drop
+  loop ;
+
+
 ### # ch-idx  first index of char in string
 ### : ch-idx (str ch -- str idx)
 ###   swap len (str ch len)

@@ -243,6 +243,7 @@ void run_native_tests(KCtx *ctx) {
 
   TEST("do...loop", "5 0 do dup . loop", 0, is_printed("01234"));
   TEST("do...+loop", "25 0 do dup . 5 +loop", 0, is_printed("05101520"));
+  TEST("begin...until", "5 begin dup . 1 - dup 0 = until drop", 0, is_printed("54321"));
 
   //TEST("cond err", "42 cond", 1, is_error(top, "Cond requires an array with alternating condition/action pairs."));
   TEST("cond1", "7 " age_check, 2, is_str(top, "child"));

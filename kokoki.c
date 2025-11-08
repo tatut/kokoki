@@ -28,6 +28,7 @@ const char *TYPE_NAME[] = {
     [KT_NUMBER] = "number",
     [KT_STRING] = "string",
     [KT_NAME] = "name",
+    [KT_QUOTED_NAME] = "'name",
     [KT_ARRAY_START] = "[ ",
     [KT_ARRAY_END] = " ]",
     [KT_REF_NAME] = "refname",
@@ -146,7 +147,11 @@ uint32_t kval_hash(KVal v) { // MurmurOAAT_32
     snprintf((val).data.string.data, _errlen + 1, fmt VA_ARGS(__VA_ARGS__));   \
   }
 
-bool falsy(KVal v) { return (v.type == KT_FALSE || v.type == KT_NIL); }
+bool falsy(KVal v) {
+  return (v.type == KT_FALSE || v.type == KT_NIL ||
+          (v.type == KT_NUMBER && v.data.number == 0));
+}
+
 
 bool kval_eq(KVal a, KVal b) {
   if (a.type != b.type)
@@ -292,9 +297,15 @@ void skip(KReader *in, size_t count) {
 }
 
 char peek(KReader *in) {
-  if(in->at == in->end) return 0;
+  if(in->at >= in->end) return 0;
   return *(in->at + 1);
 }
+char peek2(KReader *in) {
+  if (in->at > (in->end - 2))
+    return 0;
+  return *(in->at + 2);
+}
+
 char at(KReader *in) {
   if(in->at == in->end) return 0;
   return *in->at;
@@ -488,13 +499,19 @@ KVal read(KReader *in) {
     }
 
   case '\'': {
-    next(in);
-    if (peek(in) != '\'')
-      goto fail;
-    char ch = at(in);
-    next(in);
-    next(in);
-    out = (KVal){.type = KT_NUMBER, .data.number = ch}; break;
+    if (peek2(in) == '\'') {
+      next(in);
+      char ch = at(in);
+      next(in);
+      next(in);
+      out = (KVal){.type = KT_NUMBER, .data.number = ch};
+    } else {
+      next(in);
+      out = read_name(in);
+      out.type = KT_QUOTED_NAME;
+    }
+    break;
+
   }
   case 't': {
     if (looking_at(in, "true")) {
@@ -569,6 +586,9 @@ KVal read(KReader *in) {
 
 void kval_dump(FILE *out, KVal v) {
   switch (v.type) {
+  case KT_COMMA:
+    fprintf(out, ", ");
+    break;
   case KT_NIL:
     col(out, PURPLE);
     fprintf(out, "nil");
@@ -587,6 +607,9 @@ void kval_dump(FILE *out, KVal v) {
     break;
   case KT_NAME:
     fprintf(out, "%.*s", (int)v.data.string.len, v.data.string.data);
+    break;
+  case KT_QUOTED_NAME:
+    fprintf(out, "'%.*s", (int)v.data.string.len, v.data.string.data);
     break;
   case KT_REF_NAME:
     fprintf(out, "@%.*s", (int)v.data.string.len, v.data.string.data);
@@ -785,6 +808,13 @@ void execute(KCtx *ctx) {
       i16.b[1] = NEXT();
       push = (KVal){.type = KT_NUMBER, .data.number = i16.n};
       goto push_it;
+    case OP_PUSH_ADDR: {
+      uint32_t addr = NEXT();
+      addr = (addr << 8) + NEXT();
+      addr = (addr << 8) + NEXT();
+      push = (KVal){.type = KT_CODE_ADDR, .data.address = addr};
+      goto push_it;
+    }
     case OP_PUSH_NUMBER:
       memcpy(num.b, &ctx->bytecode->items[ctx->pc], 8);
       ctx->pc += 8;
@@ -983,12 +1013,12 @@ void execute(KCtx *ctx) {
     }
     case OP_CALLS: {
       ASSERT_STACK(1);
-      double n = arr_pop(ctx->stack).data.number;
+      double n = arr_pop(ctx->stack).data.address;
       if (n < 0 || n >= ctx->bytecode->size) {
         fprintf(stderr,
-                "Illegal call, can't jump outside bytecode range. Value %d not "
+                "Illegal call, can't jump outside bytecode range. Value %ld not "
                 "in (0 - %zu)\n",
-                n, ctx->bytecode->size);
+                (long)n, ctx->bytecode->size);
         return;
       }
       ARR_PUSH(ctx->return_addr, ctx->pc);
@@ -1122,6 +1152,8 @@ typedef enum CompileMode {
   C_IF,         // compiling IF, waiting for ELSE or THEN
   C_IF_ELSE,    // compiling after IF ... ELSE, waiting for THEN
   C_DO,         // compiling DO loop, end with LOOP or +LOOP
+  C_BEGIN,      // compile BEGIN ... UNTIL (or BEGIN ... WHILE ... REPEAT)
+  C_BEGIN_WHILE,// compile BEGIN ... WHILE ... REPEAT
 } CompileMode;
 
 
@@ -1177,7 +1209,12 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
       if (is_name(token, "+loop") || is_name(token, "loop"))
         goto done;
       break;
+    case C_BEGIN:
+      if (is_name(token, "until") || is_name(token, "again") ||
+          is_name(token, "while"))
+        goto done;
     }
+
     if (token.type == KT_EOF) {
       // EOF should only come at toplevel, otherwise it is unexpected
       fprintf(stderr, "Compilation failed, unexpected EOF");
@@ -1215,6 +1252,27 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
       }
       break;
     }
+    case KT_QUOTED_NAME: {
+      /* check if we know a name, and push its address to stack */
+      token.type = KT_NAME;
+      KVal val = hm_get(ctx->names, token);
+      if (val.type == KT_CODE_ADDR) {
+        uint32_t addr = val.data.address;
+        emit(ctx, OP_PUSH_ADDR);
+        emit(ctx, addr >> 16);
+        emit(ctx, addr >> 8);
+        emit(ctx, addr);
+      } else {
+        fprintf(
+            stderr,
+            "Compilation failed, name \"%.*s\" is not a known defined word\n",
+            (int)token.data.string.len, token.data.string.data);
+        kval_dump(stderr, val);
+        return;
+      }
+      break;
+    }
+
     case KT_NAME: {
       /* Check special control structures */
 
@@ -1300,6 +1358,27 @@ void compile(KCtx *ctx, KReader *in, CompileMode mode) {
         // drop index and limit
         emit(ctx, OP_DROP);
         emit(ctx, OP_DROP);
+        break;
+      }
+
+      if (is_name(token, "begin")) {
+        // start a loop
+        size_t loop_start_pos = ctx->bytecode->size;
+        compile(ctx, in, C_BEGIN);
+        if (is_name(in->last_token, "again")) {
+          // endless loop
+          emit(ctx, OP_JMP);
+          emit(ctx, loop_start_pos >> 16);
+          emit(ctx, loop_start_pos >> 8);
+          emit(ctx, loop_start_pos);
+        } else if (is_name(in->last_token, "until")) {
+          // until top of stack is truthy
+          emit(ctx, OP_JMP_FALSE);
+          emit(ctx, loop_start_pos >> 16);
+          emit(ctx, loop_start_pos >> 8);
+          emit(ctx, loop_start_pos);
+
+        }
         break;
       }
 
@@ -1626,17 +1705,41 @@ void native_aset(KCtx *ctx) {
   KVal idx = arr_pop(ctx->stack);
   KVal arr = arr_peek(ctx->stack);
   size_t i = (size_t)idx.data.number;
-  if (i < 0 || i > arr.data.array->size) {
-    KVal ret;
-    err(ret, "Index out of bounds %zu (0 - %zu inclusive)", i,
-        arr.data.array->size);
-    arr_push(ctx->stack, ret);
-  } else {
-    if (i == arr.data.array->size) {
-      arr_push(arr.data.array, val);
+  KVal ret;
+  if(arr.type == KT_ARRAY) {
+    if (i < 0 || i > arr.data.array->size) {
+      err(ret, "Index out of bounds %zu (0 - %zu inclusive)", i,
+          arr.data.array->size);
+      arr_push(ctx->stack, ret);
     } else {
-      arr.data.array->items[i] = val;
+      if (i == arr.data.array->size) {
+        arr_push(arr.data.array, val);
+      } else {
+        arr.data.array->items[i] = val;
+      }
     }
+  } else if (arr.type == KT_STRING) {
+    if (i < 0 || i > arr.data.string.len) {
+      err(ret, "Index out of bounds %zu (0 - %zu inclusive)", i,
+          arr.data.string.len);
+      arr_push(ctx->stack, ret);
+    } else {
+      if (i == arr.data.string.len) {
+        // extend string by 1 character
+        KVal str = (KVal){
+            .type = KT_STRING,
+            .data.string = {.len = i + 1, .data = tgc_alloc(&gc, i + 1)}};
+        memcpy(str.data.string.data, arr.data.string.data, arr.data.string.len);
+        str.data.string.data[i] = (char)val.data.number;
+        arr_pop(ctx->stack);
+        arr_push(ctx->stack, str);
+      } else {
+        arr.data.string.data[i] = (char)val.data.number;
+      }
+    }
+  } else {
+    err(ret, "Expected array/string to aset into, got %s", TYPE_NAME[arr.type]);
+    arr_push(ctx->stack, ret);
   }
 }
 
@@ -1825,6 +1928,47 @@ void native_use(KCtx *ctx) {
   native_eval(ctx);
 }
 
+void native_each(KCtx *ctx) {
+  KVal code = arr_pop(ctx->stack);
+  KVal arr = arr_pop(ctx->stack);
+  KVal error;
+  if (code.type != KT_CODE_ADDR) {
+    err(error, "Can't call %s, expected code address.", TYPE_NAME[code.type]);
+    goto error;
+  }
+
+  if(arr.type == KT_ARRAY) {
+    for (size_t i = 0; i < arr.data.array->size; i++) {
+      KVal item = arr.data.array->items[i];
+      arr_push(ctx->stack, item);
+      exec(ctx, code);
+      arr.data.array->items[i] = arr_pop(ctx->stack);
+    }
+  } else if (arr.type == KT_STRING) {
+    for (size_t i = 0; i < arr.data.string.len; i++) {
+      KVal byte = (KVal){.type = KT_NUMBER,
+                         .data.number = (double)arr.data.string.data[i]};
+      arr_push(ctx->stack, byte);
+      exec(ctx, code);
+      KVal v = arr_pop(ctx->stack);
+      if (v.type != KT_NUMBER) {
+        err(error, "Can't store non-number value to string index: %zu", i);
+        goto error;
+      }
+      arr.data.string.data[i] = (char) v.data.number;
+    }
+  } else {
+    err(error, "Expected array or string to go through");
+    goto error;
+  }
+
+  arr_push(ctx->stack, arr);
+  return;
+
+  error:
+  arr_push(ctx->stack, error);
+}
+
 KNative native[] = {
     {.name = "+", .op = OP_PLUS},
     {.name = "-", .op = OP_MINUS},
@@ -1902,42 +2046,7 @@ bool get_native_fn(const char *name, KNative *nat) {
  * => leaves [2 3 4] on the stack
  */
 
-void native_each(KCtx *ctx) {
-  KVal code = arr_pop(ctx->stack);
-  if(code.type == KT_ARRAY) code.type = KT_BLOCK;
-  KVal arr = arr_pop(ctx->stack);
-  KVal error;
-  if(arr.type == KT_ARRAY) {
-    for (size_t i = 0; i < arr.data.array->size; i++) {
-      KVal item = arr.data.array->items[i];
-      arr_push(ctx->stack, item);
-      exec(ctx, code);
-      arr.data.array->items[i] = arr_pop(ctx->stack);
-    }
-  } else if (arr.type == KT_STRING) {
-    for (size_t i = 0; i < arr.data.string.len; i++) {
-      KVal byte = (KVal){.type = KT_NUMBER,
-                         .data.number = (double)arr.data.string.data[i]};
-      arr_push(ctx->stack, byte);
-      exec(ctx, code);
-      KVal v = arr_pop(ctx->stack);
-      if (v.type != KT_NUMBER) {
-        err(error, "Can't store non-number value to string index: %zu", i);
-        goto error;
-      }
-      arr.data.string.data[i] = (char) v.data.number;
-    }
-  } else {
-    err(error, "Expected array or string to go through");
-    goto error;
-  }
 
-  arr_push(ctx->stack, arr);
-  return;
-
-  error:
-  arr_push(ctx->stack, error);
-}
 
 void fold(KCtx *ctx, bool init) {
   KVal code = arr_pop(ctx->stack);
@@ -2097,18 +2206,18 @@ void kokoki_init(void (*callback)(KCtx*,void*), void *user) {
   tgc_start(&gc, &dummy);
   KCtx *ctx = kctx_new();
 
-  /* size_t sz; */
-  /* uint8_t *stdlib; */
-  /* get_resource("stdlib.ki", &sz, &stdlib); */
-  /* KReader in = { */
-  /*   .at = (char *)stdlib, */
-  /*   .end = (char *)stdlib + sz, */
-  /*   .line = 1, */
-  /*   .col = 1 */
-  /* }; */
-  /* compile(ctx, &in, C_TOPLEVEL); */
-  /* execute(ctx); */
-  /* tgc_free(&gc, stdlib); */
+  size_t sz;
+  uint8_t *stdlib;
+  get_resource("stdlib.ki", &sz, &stdlib);
+  KReader in = {
+    .at = (char *)stdlib,
+    .end = (char *)stdlib + sz,
+    .line = 1,
+    .col = 1
+  };
+  compile(ctx, &in, C_TOPLEVEL);
+  execute(ctx);
+  tgc_free(&gc, stdlib);
   callback(ctx,user);
   tgc_stop(&gc);
 }
@@ -2119,9 +2228,9 @@ bool kokoki_eval(KCtx *ctx, const char *source) {
 
   KReader in = (KReader){.at = src, .end = end, .line = 1, .col = 1};
   size_t pc = ctx->bytecode->size;
-  printf("compile more at pos: %zu\n", pc);
+  //printf("compile more at pos: %zu\n", pc);
   compile(ctx, &in, C_TOPLEVEL);
-  printf("pc now at: %zu (size: %zu)\n", ctx->pc, ctx->bytecode->size);
+  //printf("pc now at: %zu (size: %zu)\n", ctx->pc, ctx->bytecode->size);
   execute(ctx);
 
   return true;
